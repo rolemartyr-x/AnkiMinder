@@ -14,17 +14,40 @@ class AddonConfig:
     beeminder_auth_token: str = ""
     default_goal_slug: str = ""
     review_count_goal_slug: str = ""
+    automation_enabled: bool = False
+    automation_triggers: list[str] | None = None
+    automation_only_once_per_day: bool = False
+    last_automation_sync_date: str = ""
+    last_review_count_sync_date: str = ""
+    last_review_count_value: int = -1
+    last_review_count_datapoint_id: str = ""
     request_timeout_seconds: int = 10
     dry_run: bool = True
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "AddonConfig":
         data = dict(raw or {})
+        raw_triggers = data.get("automation_triggers", ["sync"])
+        if isinstance(raw_triggers, list):
+            triggers = [str(item).strip() for item in raw_triggers if str(item).strip()]
+        elif isinstance(raw_triggers, str):
+            triggers = [raw_triggers.strip()] if raw_triggers.strip() else []
+        else:
+            triggers = ["sync"]
         return cls(
             beeminder_username=str(data.get("beeminder_username", "")).strip(),
             beeminder_auth_token=str(data.get("beeminder_auth_token", "")).strip(),
             default_goal_slug=str(data.get("default_goal_slug", "")).strip(),
             review_count_goal_slug=str(data.get("review_count_goal_slug", "")).strip(),
+            automation_enabled=bool(data.get("automation_enabled", False)),
+            automation_triggers=triggers or ["sync"],
+            automation_only_once_per_day=bool(data.get("automation_only_once_per_day", False)),
+            last_automation_sync_date=str(data.get("last_automation_sync_date", "")).strip(),
+            last_review_count_sync_date=str(data.get("last_review_count_sync_date", "")).strip(),
+            last_review_count_value=int(data.get("last_review_count_value", -1)),
+            last_review_count_datapoint_id=str(
+                data.get("last_review_count_datapoint_id", "")
+            ).strip(),
             request_timeout_seconds=int(data.get("request_timeout_seconds", 10)),
             dry_run=bool(data.get("dry_run", True)),
         )

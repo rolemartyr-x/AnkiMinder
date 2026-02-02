@@ -7,8 +7,8 @@ from anki_beeminder.services.review_count_service import (
     AnkiReviewCountSource,
     ReviewCountSyncService,
     day_bounds_epoch_millis,
+    request_id_for_day,
 )
-from anki_beeminder.services.sync_service import SyncService
 
 
 class FakeDb:
@@ -45,24 +45,68 @@ class TestReviewCountService(unittest.TestCase):
         self.assertIn("FROM revlog", fake_db.last_query)
         self.assertEqual(len(fake_db.last_params), 2)
 
-    def test_sync_day_sends_review_count_as_datapoint(self) -> None:
+    def test_sync_day_creates_datapoint_when_missing(self) -> None:
         config = AddonConfig(
             beeminder_username="alice",
             beeminder_auth_token="token",
-            default_goal_slug="fallback-goal",
             review_count_goal_slug="anki-reviews",
             dry_run=False,
         )
         client = MockBeeminderClient()
-        sync_service = SyncService(config=config, client=client)
         service = ReviewCountSyncService(
-            sync_service=sync_service,
+            config=config,
+            client=client,
             review_count_source=FakeReviewCountSource(count=42),
         )
-        result = service.sync_day(day=date(2026, 2, 2), goal_slug=config.review_count_goal_slug)
+        result = service.sync_day_total(day=date(2026, 2, 2))
         self.assertTrue(result.posted)
-        self.assertEqual(client.calls[0][1], "anki-reviews")
-        self.assertEqual(client.calls[0][2].value, 42.0)
+        self.assertEqual(len(client.calls), 1)
+        self.assertEqual(
+            client.calls[0][2].requestid,
+            request_id_for_day(date(2026, 2, 2), "anki-reviews"),
+        )
+
+    def test_sync_day_updates_existing_datapoint(self) -> None:
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug="anki-reviews",
+            last_review_count_sync_date="2026-02-02",
+            last_review_count_datapoint_id="mock-1",
+            last_review_count_value=10,
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        service = ReviewCountSyncService(
+            config=config,
+            client=client,
+            review_count_source=FakeReviewCountSource(count=14),
+        )
+        result = service.sync_day_total(day=date(2026, 2, 2))
+        self.assertTrue(result.posted)
+        self.assertEqual(len(client.updated_calls), 1)
+        self.assertEqual(client.updated_calls[0][2], "mock-1")
+        self.assertEqual(client.updated_calls[0][3].value, 14.0)
+
+    def test_sync_day_skips_when_count_unchanged(self) -> None:
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug="anki-reviews",
+            last_review_count_sync_date="2026-02-02",
+            last_review_count_value=42,
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        service = ReviewCountSyncService(
+            config=config,
+            client=client,
+            review_count_source=FakeReviewCountSource(count=42),
+        )
+        result = service.sync_day_total(day=date(2026, 2, 2))
+        self.assertFalse(result.posted)
+        self.assertEqual(len(client.calls), 0)
+        self.assertEqual(len(client.updated_calls), 0)
 
 
 if __name__ == "__main__":

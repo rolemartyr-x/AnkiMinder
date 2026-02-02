@@ -3,6 +3,13 @@
   "beeminder_auth_token": "",
   "default_goal_slug": "",
   "review_count_goal_slug": "",
+  "automation_enabled": false,
+  "automation_triggers": ["sync"],
+  "automation_only_once_per_day": false,
+  "last_automation_sync_date": "",
+  "last_review_count_sync_date": "",
+  "last_review_count_value": -1,
+  "last_review_count_datapoint_id": "",
   "request_timeout_seconds": 10,
   "dry_run": true
 }

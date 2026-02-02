@@ -77,6 +77,23 @@ class BeeminderClient:
             raise BeeminderRequestError("Expected a list of datapoints from Beeminder.")
         return [DatapointResponse.from_json(item) for item in payload if isinstance(item, dict)]
 
+    def update_datapoint(
+        self,
+        username: str,
+        goal_slug: str,
+        datapoint_id: str,
+        request: CreateDatapointRequest,
+        timeout_seconds: int = 10,
+    ) -> DatapointResponse:
+        response = self._transport.request(
+            method="PUT",
+            url=f"{self._base_url}/users/{username}/goals/{goal_slug}/datapoints/{datapoint_id}.json",
+            data={"auth_token": self._auth_token, **request.to_payload()},
+            timeout_seconds=timeout_seconds,
+        )
+        payload = self._parse_and_raise(response.status_code, response)
+        return DatapointResponse.from_json(payload)
+
     @staticmethod
     def _parse_and_raise(status_code: int, response) -> dict:
         payload = parse_json_object(response)

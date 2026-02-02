@@ -35,6 +35,20 @@ class TestBeeminderClient(unittest.TestCase):
         with self.assertRaises(BeeminderAuthError):
             client.get_user("alice")
 
+    def test_update_datapoint_uses_put(self) -> None:
+        transport = MockTransport()
+        transport.queue_json(200, {"id": "dp-1", "value": 3.0, "timestamp": 1, "comment": "updated"})
+        client = BeeminderClient(auth_token="token", transport=transport)
+        result = client.update_datapoint(
+            username="alice",
+            goal_slug="anki",
+            datapoint_id="dp-1",
+            request=CreateDatapointRequest(value=3.0, comment="updated", requestid="rid-1"),
+        )
+        self.assertEqual(result.id, "dp-1")
+        self.assertEqual(transport.requests[0].method, "PUT")
+        self.assertEqual(transport.requests[0].data["requestid"], "rid-1")
+
     def test_list_datapoints_shape_validation(self) -> None:
         transport = MockTransport()
         transport.queue_json(200, {"unexpected": "object"})

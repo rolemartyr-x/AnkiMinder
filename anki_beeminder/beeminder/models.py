@@ -34,6 +34,7 @@ class DatapointResponse:
     value: float
     timestamp: int
     comment: str = ""
+    requestid: str = ""
     daystamp: str = ""
     fulltext: str = ""
 
@@ -44,6 +45,7 @@ class DatapointResponse:
             value=float(raw.get("value", 0.0)),
             timestamp=int(raw.get("timestamp", 0)),
             comment=str(raw.get("comment", "")),
+            requestid=str(raw.get("requestid", "")),
             daystamp=str(raw.get("daystamp", "")),
             fulltext=str(raw.get("fulltext", "")),
         )
