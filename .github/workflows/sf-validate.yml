@@ -1,0 +1,191 @@
+name: Salesforce Validate Deploy
+
+on:
+  pull_request:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  security-events: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Salesforce CLI
+        run: npm install -g @salesforce/cli
+
+      - name: Install Salesforce Code Analyzer
+        run: sf plugins install @salesforce/sfdx-scanner@latest
+
+      - name: Auth to Sandbox (SFDX Auth URL)
+        env:
+          # Support either SF_AUTH_URL or SFDX_AUTH_URL
+          SF_AUTH_URL: ${{ secrets.SF_AUTH_URL || secrets.SFDX_AUTH_URL }}
+        run: |
+          if [ -z "$SF_AUTH_URL" ]; then
+            echo "SF_AUTH_URL secret not set. Add it in repo settings to enable validation." >&2
+            exit 1
+          fi
+          echo "$SF_AUTH_URL" > sfdxurl.txt
+          sf org login sfdx-url --sfdx-url-file sfdxurl.txt --alias prTarget
+          rm -f sfdxurl.txt
+
+      - name: Decide test level based on changed files
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -e
+          git fetch --no-tags --prune --depth=50 origin
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ -n "$BASE_SHA" ]; then
+            echo "Detecting changes vs PR base: $BASE_SHA"
+            if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              echo "Base SHA not present locally. Attempting to fetch it."
+              git fetch origin "$BASE_SHA" || true
+            fi
+            if git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+              CHANGED=$(git diff --name-only "$BASE_SHA" HEAD)
+            else
+              echo "Base SHA still unavailable; falling back to last commit."
+              if git rev-parse HEAD~1 >/dev/null 2>&1; then
+                CHANGED=$(git diff --name-only HEAD~1 HEAD)
+              else
+                CHANGED=""
+              fi
+            fi
+          elif [ -n "$BEFORE_SHA" ]; then
+            echo "Detecting changes vs push before SHA: $BEFORE_SHA"
+            if ! git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+              echo "Previous SHA not found; falling back to HEAD~1"
+              if git rev-parse HEAD~1 >/dev/null 2>&1; then
+                CHANGED=$(git diff --name-only HEAD~1 HEAD)
+              else
+                CHANGED=""
+              fi
+            else
+              CHANGED=$(git diff --name-only "$BEFORE_SHA" HEAD)
+            fi
+          else
+            echo "Fallback: using last commit only"
+            if git rev-parse HEAD~1 >/dev/null 2>&1; then
+              CHANGED=$(git diff --name-only HEAD~1 HEAD)
+            else
+              CHANGED=""
+            fi
+          fi
+
+          echo "Changed files:\n$CHANGED"
+
+          if echo "$CHANGED" | grep -Ei '\\.(cls|trigger)(|-meta\\.xml)$|/classes/|/triggers/|/lwc/|/aura/' > /dev/null; then
+            TEST_LEVEL=RunLocalTests
+          else
+            TEST_LEVEL=NoTestRun
+          fi
+
+          echo "Using TEST_LEVEL=$TEST_LEVEL"
+          echo "TEST_LEVEL=$TEST_LEVEL" >> $GITHUB_ENV
+
+          DEPLOY_DIR_LIST=()
+          SCANNER_TARGET_LIST=()
+          while IFS= read -r path; do
+            [ -z "$path" ] && continue
+            [ ! -e "$path" ] && continue
+            case "$path" in
+              force-app/*)
+                if [ -d "$path" ]; then
+                  dir="$path"
+                else
+                  dir=$(dirname "$path")
+                  if [[ "$path" == force-app/main/default/lwc/*/* ]]; then
+                    dir=$(echo "$path" | awk -F/ '{print $1"/"$2"/"$3"/"$4"/"$5}')
+                    SCANNER_TARGET_LIST+=("$dir")
+                  elif [[ "$path" == force-app/main/default/aura/*/* ]]; then
+                    dir=$(echo "$path" | awk -F/ '{print $1"/"$2"/"$3"/"$4"/"$5}')
+                    SCANNER_TARGET_LIST+=("$dir")
+                  else
+                    case "$path" in
+                      *.cls|*.trigger|*.cmp|*.component|*.page|*.js|*.ts)
+                        SCANNER_TARGET_LIST+=("$path")
+                        ;;
+                    esac
+                  fi
+                fi
+                DEPLOY_DIR_LIST+=("$dir")
+                ;;
+            esac
+          done <<< "$CHANGED"
+
+          if [ ${#DEPLOY_DIR_LIST[@]} -gt 0 ]; then
+            DEPLOY_DIRS=$(printf '%s\n' "${DEPLOY_DIR_LIST[@]}" | sed '/^$/d' | sort -u)
+          else
+            DEPLOY_DIRS=""
+          fi
+          if [ -z "$DEPLOY_DIRS" ]; then
+            DEPLOY_DIRS="force-app"
+          fi
+
+          echo "Deploy directories:\n$DEPLOY_DIRS"
+          {
+            echo "DEPLOY_DIRS<<EOF"
+            printf '%s\n' "$DEPLOY_DIRS"
+            echo "EOF"
+          } >> $GITHUB_ENV
+
+          if [ ${#SCANNER_TARGET_LIST[@]} -gt 0 ]; then
+            SCANNER_TARGETS=$(printf '%s\n' "${SCANNER_TARGET_LIST[@]}" | sed '/^$/d' | sort -u)
+            {
+              echo "SCANNER_TARGETS<<EOF"
+              printf '%s\n' "$SCANNER_TARGETS"
+              echo "EOF"
+            } >> $GITHUB_ENV
+          else
+            echo "SCANNER_TARGETS=" >> $GITHUB_ENV
+          fi
+
+      - name: Check-only deploy
+        run: |
+          ARGS=("project" "deploy" "start" "--dry-run" "--target-org" "prTarget")
+          while IFS= read -r dir; do
+            [ -z "$dir" ] && continue
+            ARGS+=("--source-dir" "$dir")
+          done <<< "$DEPLOY_DIRS"
+          if [ "$TEST_LEVEL" != "" ] && [ "$TEST_LEVEL" != "NoTestRun" ]; then
+            ARGS+=("--test-level" "$TEST_LEVEL")
+          fi
+          sf "${ARGS[@]}"
+
+      - name: Static analysis (SARIF)
+        if: ${{ env.SCANNER_TARGETS != '' }}
+        run: |
+          ARGS=()
+          while IFS= read -r target; do
+            [ -z "$target" ] && continue
+            ARGS+=("--target" "$target")
+          done <<< "$SCANNER_TARGETS"
+          if [ ${#ARGS[@]} -eq 0 ]; then
+            echo "No scanner targets after filtering; skipping."
+            exit 0
+          fi
+          sf scanner run "${ARGS[@]}" --category "Best Practices,Design,Performance,Security" --format sarif --outfile scanner-results.sarif
+
+      - name: Upload Code Scanning results
+        if: ${{ env.SCANNER_TARGETS != '' }}
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: scanner-results.sarif
