@@ -37,7 +37,17 @@ This design supports multiple study sessions per day without creating duplicate 
 
 ---
 
-## Install in Anki (Manual / Dev)
+## Install in Anki (Recommended: `.ankiaddon`)
+
+1. Download `ankiminder.ankiaddon` (or a versioned build like `AnkiMinder-v1.0.1.ankiaddon`).
+2. In Anki, go to:
+   - `Tools -> Add-ons -> Install from file...`
+3. Select the `.ankiaddon` file.
+4. Restart Anki.
+
+---
+
+## Install in Anki (Manual / Dev Fallback)
 
 1. Open your Anki add-ons directory:
    - Windows: `%APPDATA%\Anki2\addons21\`
@@ -53,7 +63,7 @@ This design supports multiple study sessions per day without creating duplicate 
 ## Configure the Add-on
 
 In Anki:
-`Tools -> Add-ons -> <your-addon-folder-name> -> Config`
+`Tools -> Add-ons -> AnkiMinder -> Config`
 
 Config options (all current keys):
 - `beeminder_username` (string): your Beeminder username.
@@ -84,56 +94,6 @@ Example:
   "dry_run": true
 }
 ```
-
----
-
-## Local Development
-
-### Prerequisites
-
-- Python 3.10+ (using `python3`)
-
-### Run Tests
-
-```bash
-python3 -m unittest discover -s tests
-```
-
-### Build a Shareable Package
-
-This repo includes a packager for `.ankiaddon` output:
-
-```bash
-python3 scripts/build_ankiaddon.py
-```
-
-Optional custom output path:
-
-```bash
-python3 scripts/build_ankiaddon.py --output dist/AnkiMinder-v1.0.0.ankiaddon
-```
-
-The package is written to `dist/` and includes:
-- `__init__.py`
-- `manifest.json`
-- `config.json`
-- `config.md`
-- `ankiminder/`
-
-Install by sharing the `.ankiaddon` file and using:
-`Tools -> Add-ons -> Install from file...`
-
-### Repo Layout
-
-- `__init__.py`: Anki add-on entrypoint
-- `config.json`: default add-on config schema
-- `config.md`: user-facing config explanation
-- `manifest.json`: add-on manifest used by packaged distribution
-- `ankiminder/addon.py`: Anki UI/hooks wiring
-- `ankiminder/beeminder/`: API client, transport, models
-- `ankiminder/services/`: business logic (review sync + automation policy)
-- `ankiminder/mocks/`: test doubles
-- `tests/`: unit tests
 
 ---
 
@@ -173,4 +133,4 @@ Never commit:
 
 ## License
 
-No license file is currently included. Add one before public distribution if needed.
+MIT. See `LICENSE`.
