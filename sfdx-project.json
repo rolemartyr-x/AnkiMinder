@@ -5,8 +5,8 @@
       "default": true
     }
   ],
-  "name": "AnkiAddOn",
+  "name": "template",
   "namespace": "",
-  "sfdcLoginUrl": "https://login.salesforce.com",
-  "sourceApiVersion": "65.0"
+  "sfdcLoginUrl": "https://test.salesforce.com",
+  "sourceApiVersion": "64.0"
 }
