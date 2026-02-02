@@ -1,8 +1,8 @@
 import unittest
 
-from anki_beeminder.config import AddonConfig
-from anki_beeminder.mocks.mock_client import MockBeeminderClient
-from anki_beeminder.services.sync_service import SyncService
+from ankiminder.config import AddonConfig
+from ankiminder.mocks.mock_client import MockBeeminderClient
+from ankiminder.services.sync_service import SyncService
 
 
 class TestSyncService(unittest.TestCase):

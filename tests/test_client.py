@@ -1,9 +1,9 @@
 import unittest
 
-from anki_beeminder.beeminder.client import BeeminderClient
-from anki_beeminder.beeminder.models import CreateDatapointRequest
-from anki_beeminder.exceptions import BeeminderAuthError, BeeminderRequestError
-from anki_beeminder.mocks.mock_transport import MockTransport
+from ankiminder.beeminder.client import BeeminderClient
+from ankiminder.beeminder.models import CreateDatapointRequest
+from ankiminder.exceptions import BeeminderAuthError, BeeminderRequestError
+from ankiminder.mocks.mock_transport import MockTransport
 
 
 class TestBeeminderClient(unittest.TestCase):

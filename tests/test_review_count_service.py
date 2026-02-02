@@ -1,10 +1,10 @@
 import unittest
 from datetime import date
 
-from anki_beeminder.beeminder.models import CreateDatapointRequest
-from anki_beeminder.config import AddonConfig
-from anki_beeminder.mocks.mock_client import MockBeeminderClient
-from anki_beeminder.services.review_count_service import (
+from ankiminder.beeminder.models import CreateDatapointRequest
+from ankiminder.config import AddonConfig
+from ankiminder.mocks.mock_client import MockBeeminderClient
+from ankiminder.services.review_count_service import (
     AnkiReviewCountSource,
     ReviewCountSyncService,
     day_bounds_epoch_millis,

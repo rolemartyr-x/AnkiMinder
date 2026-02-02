@@ -16,8 +16,6 @@ class AddonConfig:
     review_count_goal_slug: str = ""
     automation_enabled: bool = False
     automation_triggers: list[str] | None = None
-    automation_only_once_per_day: bool = False
-    last_automation_sync_date: str = ""
     last_review_count_sync_date: str = ""
     last_review_count_value: int = -1
     last_review_count_datapoint_id: str = ""
@@ -41,8 +39,6 @@ class AddonConfig:
             review_count_goal_slug=str(data.get("review_count_goal_slug", "")).strip(),
             automation_enabled=bool(data.get("automation_enabled", False)),
             automation_triggers=triggers or ["sync"],
-            automation_only_once_per_day=bool(data.get("automation_only_once_per_day", False)),
-            last_automation_sync_date=str(data.get("last_automation_sync_date", "")).strip(),
             last_review_count_sync_date=str(data.get("last_review_count_sync_date", "")).strip(),
             last_review_count_value=int(data.get("last_review_count_value", -1)),
             last_review_count_datapoint_id=str(

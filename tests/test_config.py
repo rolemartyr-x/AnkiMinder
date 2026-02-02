@@ -1,6 +1,6 @@
 import unittest
 
-from anki_beeminder.config import AddonConfig
+from ankiminder.config import AddonConfig
 
 
 class TestConfig(unittest.TestCase):
@@ -8,7 +8,6 @@ class TestConfig(unittest.TestCase):
         config = AddonConfig.from_dict({})
         self.assertFalse(config.automation_enabled)
         self.assertEqual(config.automation_triggers, ["sync"])
-        self.assertFalse(config.automation_only_once_per_day)
 
     def test_triggers_accept_string(self) -> None:
         config = AddonConfig.from_dict({"automation_triggers": "startup"})
