@@ -36,6 +36,8 @@ python3 -m unittest discover -s tests
 - Includes a Tools menu action that syncs today's review count.
 - Includes automation hooks for startup/sync triggers.
 - Daily sync uses an upsert model (create once, then update same-day datapoint).
+- Sync decisions are based on Beeminder's current datapoints for today (not only local cache).
+- Sync outcomes are shown as non-blocking toast notifications.
 
 ## Automation config keys
 
@@ -43,4 +45,4 @@ python3 -m unittest discover -s tests
 - `automation_triggers`: Trigger list (currently supports `sync` and `startup`).
 - `automation_only_once_per_day`: Optional hard guard; default is `false` so totals can update across sessions.
 - `last_automation_sync_date`: Internal marker updated after successful automation.
-- `last_review_count_sync_date`, `last_review_count_value`, `last_review_count_datapoint_id`: Internal cache used to avoid redundant writes and update same-day totals.
+- `last_review_count_sync_date`, `last_review_count_value`, `last_review_count_datapoint_id`: Internal metadata for visibility/debugging.

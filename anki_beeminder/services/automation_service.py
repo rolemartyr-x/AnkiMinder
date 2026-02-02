@@ -34,14 +34,8 @@ class AutomationService:
                 f"Trigger '{normalized_trigger}' is not enabled in automation_triggers.",
             )
 
-        if config.automation_only_once_per_day:
-            current_day = day.isoformat()
-            if config.last_automation_sync_date == current_day:
-                return AutomationDecision(False, f"Already synced for {current_day}.")
-
         return AutomationDecision(True, "Ready to run.")
 
     def mark_ran(self, config: AddonConfig, day: date_type) -> AddonConfig:
         config.last_automation_sync_date = day.isoformat()
         return config
-

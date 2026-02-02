@@ -85,17 +85,8 @@ class ReviewCountSyncService:
                 ),
             )
 
-        if (
-            self.config.last_review_count_sync_date == day.isoformat()
-            and self.config.last_review_count_value == review_count
-        ):
-            return SyncResult(
-                posted=False,
-                message=f"Review count unchanged for {day.isoformat()} ({review_count}); no update needed.",
-            )
-
         request = CreateDatapointRequest(value=float(review_count), comment=comment, requestid=requestid)
-        existing = self._find_existing_datapoint(
+        existing = self._find_todays_datapoint(
             username=username,
             goal_slug=resolved_goal_slug,
             day=day,
@@ -103,6 +94,12 @@ class ReviewCountSyncService:
         )
 
         if existing is not None:
+            if int(existing.value) == review_count:
+                return SyncResult(
+                    posted=False,
+                    message=f"Beeminder already has today's total ({review_count}); no update needed.",
+                    datapoint=existing,
+                )
             updated = self.client.update_datapoint(
                 username=username,
                 goal_slug=resolved_goal_slug,
@@ -128,37 +125,22 @@ class ReviewCountSyncService:
             datapoint=created,
         )
 
-    def _find_existing_datapoint(
+    def _find_todays_datapoint(
         self,
         username: str,
         goal_slug: str,
         day: date_type,
         requestid: str,
     ) -> DatapointResponse | None:
-        if (
-            self.config.last_review_count_sync_date == day.isoformat()
-            and self.config.last_review_count_datapoint_id
-        ):
-            return DatapointResponse(
-                id=self.config.last_review_count_datapoint_id,
-                value=float(self.config.last_review_count_value),
-                timestamp=0,
-                requestid=requestid,
-                daystamp=daystamp(day),
-            )
-
         recent = self.client.list_datapoints(
             username=username,
             goal_slug=goal_slug,
             count=30,
             timeout_seconds=self.config.request_timeout_seconds,
         )
-        for item in recent:
-            if item.requestid == requestid:
-                return item
         target_daystamp = daystamp(day)
-        for item in recent:
-            if item.daystamp == target_daystamp and REQUEST_ID_PREFIX in item.requestid:
-                return item
-        return None
-
+        todays = [item for item in recent if item.daystamp == target_daystamp or item.requestid == requestid]
+        if not todays:
+            return None
+        todays.sort(key=lambda item: item.timestamp, reverse=True)
+        return todays[0]

@@ -28,7 +28,7 @@ class TestAutomationService(unittest.TestCase):
         decision = service.should_run(config=config, trigger=TRIGGER_STARTUP, day=date(2026, 2, 2))
         self.assertFalse(decision.should_run)
 
-    def test_once_per_day_blocks_second_run(self) -> None:
+    def test_once_per_day_setting_does_not_block_remote_upsert_checks(self) -> None:
         config = AddonConfig(
             automation_enabled=True,
             automation_triggers=[TRIGGER_SYNC],
@@ -37,7 +37,7 @@ class TestAutomationService(unittest.TestCase):
         )
         service = AutomationService()
         decision = service.should_run(config=config, trigger=TRIGGER_SYNC, day=date(2026, 2, 2))
-        self.assertFalse(decision.should_run)
+        self.assertTrue(decision.should_run)
 
     def test_mark_ran_updates_config_date(self) -> None:
         config = AddonConfig(automation_enabled=True)
@@ -48,4 +48,3 @@ class TestAutomationService(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

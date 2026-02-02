@@ -18,13 +18,15 @@ from .services.sync_service import SyncResult
 try:
     from aqt import gui_hooks, mw
     from aqt.qt import QAction
-    from aqt.utils import showInfo, showWarning
+    from aqt.utils import tooltip
 except ImportError:  # pragma: no cover - available inside Anki only
     gui_hooks = None
     mw = None
     QAction = None
-    showInfo = print
-    showWarning = print
+
+    def tooltip(message: str, period: int = 0, parent=None) -> None:  # type: ignore[no-redef]
+        _ = (period, parent)
+        print(message)
 
 
 class AddonApp:
@@ -70,8 +72,7 @@ class AddonApp:
     def _run_review_sync(self, day: date, is_automation: bool) -> Optional[SyncResult]:
         config = self._config_repo.load()
         if mw is None or getattr(mw, "col", None) is None:
-            if not is_automation:
-                showWarning("Anki collection is not available.")
+            self._notify("Anki collection is not available.", is_automation=is_automation, is_error=True)
             return None
 
         goal_slug = config.review_count_goal_slug or config.default_goal_slug
@@ -89,16 +90,19 @@ class AddonApp:
                 config.last_review_count_value = int(result.datapoint.value)
                 config.last_review_count_datapoint_id = result.datapoint.id
                 self._config_repo.save(config)
-            if result.posted:
-                if not is_automation:
-                    showInfo(result.message)
-            else:
-                if not is_automation:
-                    showWarning(result.message)
+            self._notify(result.message, is_automation=is_automation, is_error=not result.posted)
             return result
         except BeeminderError as error:
-            showWarning(f"Beeminder sync failed: {error}")
+            self._notify(f"Beeminder sync failed: {error}", is_automation=is_automation, is_error=True)
         return None
+
+    def _notify(self, message: str, is_automation: bool, is_error: bool = False) -> None:
+        prefix = "Beeminder auto-sync" if is_automation else "Beeminder sync"
+        full = f"{prefix}: {message}"
+        if is_error:
+            tooltip(full, period=6000, parent=mw)
+        else:
+            tooltip(full, period=4000, parent=mw)
 
 
 APP_INSTANCE: Optional[AddonApp] = None
