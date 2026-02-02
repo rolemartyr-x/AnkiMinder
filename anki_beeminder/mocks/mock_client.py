@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List
 
-from anki_beeminder.beeminder.models import CreateDatapointRequest, DatapointResponse
+from ..beeminder.models import CreateDatapointRequest, DatapointResponse
 
 
 @dataclass

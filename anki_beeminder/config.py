@@ -13,6 +13,7 @@ class AddonConfig:
     beeminder_username: str = ""
     beeminder_auth_token: str = ""
     default_goal_slug: str = ""
+    review_count_goal_slug: str = ""
     request_timeout_seconds: int = 10
     dry_run: bool = True
 
@@ -23,6 +24,7 @@ class AddonConfig:
             beeminder_username=str(data.get("beeminder_username", "")).strip(),
             beeminder_auth_token=str(data.get("beeminder_auth_token", "")).strip(),
             default_goal_slug=str(data.get("default_goal_slug", "")).strip(),
+            review_count_goal_slug=str(data.get("review_count_goal_slug", "")).strip(),
             request_timeout_seconds=int(data.get("request_timeout_seconds", 10)),
             dry_run=bool(data.get("dry_run", True)),
         )

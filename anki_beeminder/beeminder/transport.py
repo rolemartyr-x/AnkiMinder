@@ -9,7 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from anki_beeminder.exceptions import BeeminderRequestError
+from ..exceptions import BeeminderRequestError
 
 
 @dataclass

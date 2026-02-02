@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from anki_beeminder.beeminder.models import (
+from .models import (
     CreateDatapointRequest,
     DatapointResponse,
     UserResponse,
 )
-from anki_beeminder.beeminder.transport import (
+from .transport import (
     Transport,
     UrllibTransport,
     parse_json_body,
     parse_json_object,
 )
-from anki_beeminder.exceptions import BeeminderAuthError, BeeminderRequestError
+from ..exceptions import BeeminderAuthError, BeeminderRequestError
 
 
 class BeeminderClient:

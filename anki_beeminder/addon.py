@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Optional
 
-from anki_beeminder.beeminder.client import BeeminderClient
-from anki_beeminder.config import ConfigRepository
-from anki_beeminder.exceptions import BeeminderError
-from anki_beeminder.services.sync_service import SyncService
+from .beeminder.client import BeeminderClient
+from .config import ConfigRepository
+from .exceptions import BeeminderError
+from .services.review_count_service import (
+    AnkiReviewCountSource,
+    ReviewCountSyncService,
+)
+from .services.sync_service import SyncService
 
 try:
     from aqt import mw
-    from aqt.qt import QAction, QInputDialog
+    from aqt.qt import QAction
     from aqt.utils import showInfo, showWarning
 except ImportError:  # pragma: no cover - available inside Anki only
     mw = None
     QAction = None
-    QInputDialog = None
     showInfo = print
     showWarning = print
 
@@ -33,28 +37,24 @@ class AddonApp:
     def install_menu(self) -> None:
         if QAction is None or mw is None:
             return
-        action = QAction("Send Value to Beeminder...", mw)
-        action.triggered.connect(self._send_value_prompt)
-        mw.form.menuTools.addAction(action)
+        send_reviews_action = QAction("Send Today's Review Count to Beeminder", mw)
+        send_reviews_action.triggered.connect(self._send_todays_review_count)
+        mw.form.menuTools.addAction(send_reviews_action)
 
-    def _send_value_prompt(self) -> None:
+    def _send_todays_review_count(self) -> None:
         config = self._config_repo.load()
-        value, accepted = QInputDialog.getDouble(
-            mw,
-            "Beeminder Sync",
-            "Value to send:",
-            1.0,
-            -1_000_000.0,
-            1_000_000.0,
-            2,
-        )
-        if not accepted:
-            return
+        sync_day = date.today()
 
+        goal_slug = config.review_count_goal_slug or config.default_goal_slug
         try:
             client = BeeminderClient(auth_token=config.beeminder_auth_token)
-            service = SyncService(config=config, client=client)
-            result = service.send_value(value=value, comment="Manual sync from Anki add-on")
+            sync_service = SyncService(config=config, client=client)
+            count_source = AnkiReviewCountSource(mw.col.db)
+            review_sync = ReviewCountSyncService(
+                sync_service=sync_service,
+                review_count_source=count_source,
+            )
+            result = review_sync.sync_day(day=sync_day, goal_slug=goal_slug)
             if result.posted:
                 showInfo(result.message)
             else:

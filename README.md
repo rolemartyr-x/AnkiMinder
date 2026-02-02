@@ -12,6 +12,8 @@ Starter framework for an Anki add-on that posts study data to Beeminder.
   - `anki_beeminder/beeminder/transport.py`
   - `anki_beeminder/beeminder/models.py`
 - Service layer for sync behavior: `anki_beeminder/services/sync_service.py`
+- Review-count sync helpers:
+  - `anki_beeminder/services/review_count_service.py`
 - Mocks/test doubles:
   - `anki_beeminder/mocks/mock_transport.py`
   - `anki_beeminder/mocks/mock_client.py`
@@ -28,3 +30,5 @@ python3 -m unittest discover -s tests
 - This is intentionally lightweight scaffolding, not a full product feature set.
 - API calls are structured for easy mocking and expansion.
 - `dry_run` defaults to `True` in config to prevent accidental live writes.
+- Includes a daily review-count sync path for Beeminder do-more goals.
+- Includes a Tools menu action that syncs today's review count.

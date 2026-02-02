@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from anki_beeminder.beeminder.transport import HttpResponse
+from ..beeminder.transport import HttpResponse
 
 
 @dataclass

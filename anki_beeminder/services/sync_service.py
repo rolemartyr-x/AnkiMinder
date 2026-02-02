@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from anki_beeminder.beeminder.client import BeeminderClient
-from anki_beeminder.beeminder.models import CreateDatapointRequest, DatapointResponse
-from anki_beeminder.config import AddonConfig
+from ..beeminder.client import BeeminderClient
+from ..beeminder.models import CreateDatapointRequest, DatapointResponse
+from ..config import AddonConfig
 
 
 @dataclass
