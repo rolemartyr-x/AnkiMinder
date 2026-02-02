@@ -1,0 +1,8 @@
+{
+  "beeminder_username": "",
+  "beeminder_auth_token": "",
+  "default_goal_slug": "",
+  "request_timeout_seconds": 10,
+  "dry_run": true
+}
+

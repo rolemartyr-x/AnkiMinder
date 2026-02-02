@@ -1,111 +1,60 @@
-# AGENTS.md (Salesforce repo standard)
+# AGENTS.md (Anki Add-on + Beeminder repo standard)
 
 ## Project context
-- This is a Salesforce DX project.
-- Source of truth for metadata is under `force-app/`.
-- Prefer Salesforce best practices at all times.
-- Prefer declarative solutions first, then Apex, then integrations.
-- Use the **new `sf` CLI only**. Do not use legacy `sfdx` commands.
+- This repo is for an Anki add-on that integrates with Beeminder.
+- Follow official Anki add-on guidance: `https://addon-docs.ankiweb.net/`.
+- Follow official Beeminder API reference: `https://api.beeminder.com/#beeminder-api-reference`.
+- Prefer simple, maintainable Python-first solutions.
+- Keep user data safe and changes reversible.
 
 ## Repo layout
-- Salesforce metadata: `force-app/main/default/`
-- Apex: `force-app/main/default/classes/`
-- Flows: `force-app/main/default/flows/`
-- Lightning Web Components: `force-app/main/default/lwc/`
+- Keep production add-on code in a dedicated package directory (for example `src/` or the add-on root package).
+- Keep tests in `tests/`.
+- Keep scripts and one-off tooling in `scripts/`.
+- Treat `README.md` as the user-facing source of setup and usage truth.
 
-## Org configuration (repo-specific)
-- Target org alias for this repo: **MarlinPricing**
-- Default target org must be set before running any commands:
-  - `sf config set target-org=MarlinPricing`
+## Setup and environment
+- Use `python3` for scripts and local commands.
+- Prefer a virtual environment for local development.
+- Do not require network access for tests.
+- If a local dev setup command is needed, document it in `README.md`.
 
-## Setup commands
-- Use `python3` for scripts; `python` may be unavailable in this environment.
-- Authenticate (choose one):
-  - Web login:  
-    `sf org login web -a MarlinPricing -r https://test.salesforce.com`
-  - Device login:  
-    `sf org login device -a MarlinPricing -r https://test.salesforce.com`
-- Confirm target org:
-  - `sf org display --target-org MarlinPricing`
+## Beeminder integration rules
+- Never hard-code API tokens, usernames, or secrets.
+- Read secrets from config/environment and keep them out of source control.
+- Use explicit error handling for HTTP failures, auth failures, and malformed responses.
+- Handle time-based data carefully (timezone-aware where applicable).
+- Keep API interactions behind a thin client/service layer to make testing easy.
+- Mock Beeminder API calls in tests; do not hit live endpoints in automated tests.
 
-## Common dev commands (only when explicitly requested)
-### Deploy / retrieve
-- Deploy source to org:
-  - `sf project deploy start --source-dir force-app --target-org MarlinPricing`
-- Retrieve source from org:
-  - `sf project retrieve start --source-dir force-app --target-org MarlinPricing`
-
-## Testing
-### Apex tests
-- Run all local Apex tests:
-  - `sf apex run test --test-level RunLocalTests --target-org MarlinPricing`
-- Run specific Apex test classes:
-  - `sf apex run test --class-names MyClassTest --target-org MarlinPricing`
-
-### Flow tests
-- When Flows are created or modified, prefer running Flow tests.
-- If supported by the org, use the unified test runner:
-  - `sf logic run test --test-category Flow --test-level RunLocalTests --synchronous --target-org MarlinPricing`
-- Preferred combined run for final validation (Apex + Flow):
-  - `sf logic run test --test-category Apex --test-category Flow --test-level RunLocalTests --synchronous --target-org MarlinPricing`
-- Notes:
-  - Flow tests use the `FlowTesting.<...>` naming convention.
-  - Running Flow tests may require elevated permissions such as “View All Data”.
-  - If Flow tests are not available or fail due to org constraints, use Apex-based validation via `Flow.Interview` and document the limitation.
+## Anki add-on conventions
+- Prefer Anki-supported hooks/APIs over monkey-patching internal behavior.
+- Keep UI changes minimal, clear, and consistent with Anki UX patterns.
+- Avoid blocking operations on the main UI thread.
+- Surface actionable error messages to users (what failed and how to recover).
+- Keep configuration migration-safe when fields/settings evolve.
 
 ## Working agreements (quality bar)
-- Any Apex change must include:
-  - New or updated unit tests covering the change.
-  - Unit-testable seams for callouts, time, randomness, and external dependencies.
-- Any Flow change must include:
-  - Explicit fault paths on elements that can fail.
-  - Flow Tests where feasible, otherwise documented Apex or manual validation.
-- Do not introduce brittle logic:
-  - No hard-coded IDs.
-  - No environment-specific branching unless explicitly required.
-- Keep changes scoped:
-  - Do not reformat or rename unrelated files.
-  - Do not rename metadata unless required by the task.
-
-## Apex conventions
-- Bulk-safe and governor-safe code only.
-- No SOQL or DML in loops.
-- Prefer Custom Metadata or Custom Settings for configuration.
-- Surface meaningful, actionable error messages.
-- Follow consistent naming and layering patterns (service, selector, domain, test).
-
-## Flow conventions
-- Prefer subflows for reuse and testability.
-- Use consistent entry criteria and decision outcomes.
-- Use fault connectors on:
-  - Create, Update, Delete Records
-  - Callouts
-  - Subflows
-  - Invocable actions
+- Any behavior change must include new or updated tests.
+- Keep changes scoped; do not rename or reformat unrelated files.
+- No brittle logic:
+  - no hard-coded machine-specific paths
+  - no silent exception swallowing
+  - no hidden network side effects
+- If requirements are ambiguous, choose a reasonable default and document assumptions.
 
 ## What to do before finishing
-- **Do NOT deploy or retrieve unless explicitly instructed.**
-- Prefer “prepare and prove” over “apply”.
-
-### Required before final response
-- Validate locally where possible.
-- Run tests against the target org when feasible:
-  - Apex:
-    - `sf apex run test --test-level RunLocalTests --target-org MarlinPricing`
-  - Apex + Flow (if Flow work was involved and supported):
-    - `sf logic run test --test-category Apex --test-category Flow --test-level RunLocalTests --synchronous --target-org MarlinPricing`
+- Prefer "prepare and prove" over "apply and hope."
+- Validate locally where possible (lint, tests, static checks if available).
 - Summarize clearly:
-  - Files changed (with paths)
-  - Commands executed and results
-  - Tests added or updated (names)
-  - Follow-ups, risks, or manual steps for the reviewer
-  - The exact deploy command the reviewer should run if they choose to deploy
+  - files changed (with paths)
+  - commands executed and results
+  - tests added or updated (names)
+  - follow-ups, risks, or manual validation steps
 
 ## Boundaries
-- If a task requires changes to:
-  - Org configuration
-  - Permissions
-  - Connected apps
-  - Managed packages  
-  stop and call it out explicitly.
-- If requirements are ambiguous, propose a default approach and list assumptions instead of stalling.
+- Stop and call out explicitly if work requires:
+  - account-level Beeminder permission changes
+  - credential rotation or secret-manager changes
+  - OS-level automation permissions
+  - destructive data migration
