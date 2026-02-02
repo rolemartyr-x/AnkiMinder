@@ -1,6 +1,6 @@
 import unittest
 
-from anki_beeminder.beeminder.models import CreateDatapointRequest, DatapointResponse
+from ankiminder.beeminder.models import CreateDatapointRequest, DatapointResponse
 
 
 class TestModels(unittest.TestCase):

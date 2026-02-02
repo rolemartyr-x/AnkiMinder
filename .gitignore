@@ -41,6 +41,15 @@ $RECYCLE.BIN/
 
 # Local environment variables
 .env
+.env.*
+!.env.example
+
+# Local editor settings
+.vscode/
+*.code-workspace
+
+# Optional local addon override config
+config.local.json
 
 # Python Salesforce Functions
 **/__pycache__/

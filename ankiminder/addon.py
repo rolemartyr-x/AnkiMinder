@@ -64,10 +64,7 @@ class AddonApp:
         decision = self._automation.should_run(config=config, trigger=trigger, day=today)
         if not decision.should_run:
             return
-        result = self._run_review_sync(day=today, is_automation=True)
-        if result is not None and result.posted:
-            updated = self._automation.mark_ran(config=self._config_repo.load(), day=today)
-            self._config_repo.save(updated)
+        self._run_review_sync(day=today, is_automation=True)
 
     def _run_review_sync(self, day: date, is_automation: bool) -> Optional[SyncResult]:
         config = self._config_repo.load()
