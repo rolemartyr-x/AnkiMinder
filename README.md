@@ -99,10 +99,36 @@ Example:
 python3 -m unittest discover -s tests
 ```
 
+### Build a Shareable Package
+
+This repo includes a packager for `.ankiaddon` output:
+
+```bash
+python3 scripts/build_ankiaddon.py
+```
+
+Optional custom output path:
+
+```bash
+python3 scripts/build_ankiaddon.py --output dist/AnkiMinder-v1.0.0.ankiaddon
+```
+
+The package is written to `dist/` and includes:
+- `__init__.py`
+- `manifest.json`
+- `config.json`
+- `config.md`
+- `ankiminder/`
+
+Install by sharing the `.ankiaddon` file and using:
+`Tools -> Add-ons -> Install from file...`
+
 ### Repo Layout
 
 - `__init__.py`: Anki add-on entrypoint
 - `config.json`: default add-on config schema
+- `config.md`: user-facing config explanation
+- `manifest.json`: add-on manifest used by packaged distribution
 - `ankiminder/addon.py`: Anki UI/hooks wiring
 - `ankiminder/beeminder/`: API client, transport, models
 - `ankiminder/services/`: business logic (review sync + automation policy)
