@@ -23,6 +23,7 @@ yarn-error.log*
 
 # Dependency directories
 node_modules/
+dist/
 
 # ApexPMD cache
 .pmdCache
