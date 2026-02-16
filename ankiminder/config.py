@@ -20,6 +20,7 @@ class AddonConfig:
     last_review_count_value: int = -1
     last_review_count_datapoint_id: str = ""
     request_timeout_seconds: int = 10
+    historical_lookback_days: int = 7
     dry_run: bool = True
 
     @classmethod
@@ -45,6 +46,7 @@ class AddonConfig:
                 data.get("last_review_count_datapoint_id", "")
             ).strip(),
             request_timeout_seconds=int(data.get("request_timeout_seconds", 10)),
+            historical_lookback_days=int(data.get("historical_lookback_days", 7)),
             dry_run=bool(data.get("dry_run", True)),
         )
 
@@ -65,4 +67,3 @@ class ConfigRepository:
 
     def save(self, config: AddonConfig) -> None:
         self._addon_manager.writeConfig(self._addon_module_name, config.to_dict())
-

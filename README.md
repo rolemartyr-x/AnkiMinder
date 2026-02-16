@@ -5,10 +5,11 @@ Sync your **daily Anki review count** to a Beeminder **do-more** goal.
 This add-on supports:
 - Manual sync from the Anki Tools menu.
 - Automatic sync on Anki startup and/or after sync.
-- Daily "upsert" behavior:
-  - create today's datapoint if it does not exist
-  - update today's datapoint if total changed
-  - skip write if Beeminder already has the same total
+- Historical window "upsert" behavior:
+  - sync each day in the configured lookback window
+  - create missing day datapoints for days with reviews
+  - update existing day datapoints when totals change
+  - skip day writes already up-to-date in Beeminder or with `0` reviews
 
 ---
 
@@ -26,14 +27,15 @@ This add-on supports:
 ## How It Works
 
 For each sync attempt:
-1. Count today's reviews from Anki.
-2. Read recent datapoints from Beeminder.
-3. Find a datapoint for today.
-4. If found and value differs, update it.
-5. If found and value matches, do nothing.
-6. If not found, create today's datapoint.
+1. Build a date range from `today - historical_lookback_days` through `today`.
+2. Count reviews for each day in that range.
+3. Read recent datapoints from Beeminder once.
+4. For each day:
+5. If datapoint exists and value differs, update it.
+6. If datapoint exists and value matches, do nothing.
+7. If datapoint does not exist, create it for days with reviews.
 
-This design supports multiple study sessions per day without creating duplicate datapoints.
+This design recovers missed review days and supports multiple sessions per day without duplicates.
 
 ---
 
@@ -76,6 +78,7 @@ Config options (all current keys):
 - `last_review_count_value` (int): internal metadata, auto-managed.
 - `last_review_count_datapoint_id` (string): internal metadata, auto-managed.
 - `request_timeout_seconds` (int): Beeminder API timeout.
+- `historical_lookback_days` (int): number of days to re-sync each run (default `7`).
 - `dry_run` (bool): if true, no write is sent to Beeminder.
 
 Recommended first run:
@@ -91,6 +94,7 @@ Example:
   "automation_enabled": true,
   "automation_triggers": ["sync", "startup"],
   "request_timeout_seconds": 10,
+  "historical_lookback_days": 7,
   "dry_run": true
 }
 ```
@@ -100,12 +104,12 @@ Example:
 ## Testing Checklist in Anki
 
 1. Set `dry_run: true`.
-2. Trigger manual sync (`Tools -> Send Today's Review Count to Beeminder`).
+2. Trigger manual sync (`Tools -> Sync Review Counts to Beeminder`).
 3. Trigger automatic sync via Anki sync/startup.
 4. Set `dry_run: false`.
-5. Confirm Beeminder datapoint is created.
-6. Do more reviews and sync again.
-7. Confirm same-day datapoint is updated, not duplicated.
+5. Confirm Beeminder datapoints are created/updated for dates in your lookback window.
+6. Confirm zero-review days are skipped (no datapoint written for `0`).
+7. Do more reviews and sync again, then confirm the same-day datapoint updates.
 
 ---
 
