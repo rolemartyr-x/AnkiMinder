@@ -41,11 +41,30 @@ This design recovers missed review days and supports multiple sessions per day w
 
 ## Install in Anki (Recommended: `.ankiaddon`)
 
-1. Download `ankiminder.ankiaddon` (or a versioned build like `AnkiMinder-v1.0.1.ankiaddon`).
+1. Download the release file named like `ankiminderV1.0.3.ankiaddon`.
 2. In Anki, go to:
    - `Tools -> Add-ons -> Install from file...`
 3. Select the `.ankiaddon` file.
 4. Restart Anki.
+
+---
+
+## Build Package
+
+Build a distributable `.ankiaddon` file:
+
+```bash
+python3 scripts/build_ankiaddon.py --version 1.0.3
+```
+
+The output file name is always enforced as:
+`ankiminderV<version>.ankiaddon`
+
+Optional custom path (same enforced file name):
+
+```bash
+python3 scripts/build_ankiaddon.py --version 1.0.3 --output dist/ankiminderV1.0.3.ankiaddon
+```
 
 ---
 
