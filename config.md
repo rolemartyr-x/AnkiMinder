@@ -16,6 +16,7 @@ This add-on reads settings from `config.json`.
   - `"sync"`
   - `"startup"`
 - `request_timeout_seconds`: API timeout in seconds.
+- `historical_lookback_days`: Number of days to sync on each run (default `7`).
 - `dry_run`: If `true`, do not write to Beeminder.
 
 ## Internal Metadata (Auto-managed)

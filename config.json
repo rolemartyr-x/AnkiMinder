@@ -9,6 +9,6 @@
   "last_review_count_value": -1,
   "last_review_count_datapoint_id": "",
   "request_timeout_seconds": 10,
+  "historical_lookback_days": 7,
   "dry_run": true
 }
-

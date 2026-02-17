@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import time
 import zipfile
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = REPO_ROOT / "dist" / "ankiminder.ankiaddon"
 REQUIRED_ENTRIES = [
     "__init__.py",
     "manifest.json",
@@ -23,12 +23,29 @@ REQUIRED_ENTRIES = [
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build .ankiaddon package.")
     parser.add_argument(
+        "-v",
+        "--version",
+        required=True,
+        help="Version token used in filename, e.g. 102 or 1.0.3",
+    )
+    parser.add_argument(
         "-o",
         "--output",
-        default=str(DEFAULT_OUTPUT),
-        help="Output .ankiaddon path (default: dist/ankiminder.ankiaddon)",
+        default="",
+        help="Optional output path. File name must still be ankiminderV<version>.ankiaddon",
     )
     return parser.parse_args()
+
+
+def normalize_version_token(raw: str) -> str:
+    value = raw.strip()
+    if value.lower().startswith("v"):
+        value = value[1:]
+    if not value:
+        raise ValueError("Version is required.")
+    if not re.fullmatch(r"[0-9A-Za-z._-]+", value):
+        raise ValueError("Version contains unsupported characters.")
+    return value
 
 
 def load_manifest() -> dict:
@@ -65,7 +82,15 @@ def iter_package_files() -> list[tuple[Path, str]]:
 
 def main() -> int:
     args = parse_args()
-    out_path = Path(args.output).resolve()
+    version = normalize_version_token(args.version)
+    expected_name = f"ankiminderV{version}.ankiaddon"
+
+    if args.output:
+        out_path = Path(args.output).resolve()
+        if out_path.name != expected_name:
+            raise ValueError(f"Output file must be named '{expected_name}'.")
+    else:
+        out_path = (REPO_ROOT / "dist" / expected_name).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     manifest = load_manifest()
