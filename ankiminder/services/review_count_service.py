@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date as date_type
 from datetime import datetime, time, timedelta
-from typing import Any, Protocol, Tuple
+from typing import Any, Dict, List, Protocol, Tuple
 
 from ..beeminder.client import BeeminderClient
 from ..beeminder.models import CreateDatapointRequest, DatapointResponse
 from ..config import AddonConfig
+from ..exceptions import BeeminderError
 from .sync_service import SyncResult
 
 REQUEST_ID_PREFIX = "anki-review-count"
@@ -56,14 +57,33 @@ class AnkiReviewCountSource:
 
 
 @dataclass
+class DateRangeSyncResult:
+    """Aggregate result from syncing a range of dates."""
+
+    days_synced: int
+    days_skipped: int
+    days_failed: int
+    total_reviews: int
+    last_successful_date: date_type | None
+    last_successful_datapoint: DatapointResponse | None
+    per_day_results: Dict[str, SyncResult] = field(default_factory=dict)
+    message: str = ""
+
+
+@dataclass
 class ReviewCountSyncService:
-    """Upserts one Beeminder datapoint for a day's total review count."""
+    """Upserts Beeminder datapoints for review counts."""
 
     config: AddonConfig
     client: BeeminderClient
     review_count_source: ReviewCountSource
 
-    def sync_day_total(self, day: date_type, goal_slug: str = "") -> SyncResult:
+    def sync_day_total(
+        self,
+        day: date_type,
+        goal_slug: str = "",
+        prefetched_datapoints: List[DatapointResponse] | None = None,
+    ) -> SyncResult:
         username = self.config.beeminder_username
         resolved_goal_slug = goal_slug or self.config.review_count_goal_slug or self.config.default_goal_slug
         if not username or not resolved_goal_slug:
@@ -76,6 +96,12 @@ class ReviewCountSyncService:
         requestid = request_id_for_day(day, resolved_goal_slug)
         comment = f"Anki reviews total for {day.isoformat()}: {review_count}"
 
+        if review_count == 0:
+            return SyncResult(
+                posted=False,
+                message=f"No reviews on {day.isoformat()}; skipping sync.",
+            )
+
         if self.config.dry_run:
             return SyncResult(
                 posted=False,
@@ -86,18 +112,19 @@ class ReviewCountSyncService:
             )
 
         request = CreateDatapointRequest(value=float(review_count), comment=comment, requestid=requestid)
-        existing = self._find_todays_datapoint(
+        existing = self._find_datapoint_for_day(
             username=username,
             goal_slug=resolved_goal_slug,
             day=day,
             requestid=requestid,
+            prefetched_datapoints=prefetched_datapoints,
         )
 
         if existing is not None:
             if int(existing.value) == review_count:
                 return SyncResult(
                     posted=False,
-                    message=f"Beeminder already has today's total ({review_count}); no update needed.",
+                    message=f"Beeminder already has {day.isoformat()} total ({review_count}); no update needed.",
                     datapoint=existing,
                 )
             updated = self.client.update_datapoint(
@@ -125,22 +152,136 @@ class ReviewCountSyncService:
             datapoint=created,
         )
 
-    def _find_todays_datapoint(
+    def sync_date_range(
+        self,
+        start: date_type,
+        end: date_type,
+        goal_slug: str = "",
+    ) -> DateRangeSyncResult:
+        """Sync review counts for all dates in [start, end], including zero-review days."""
+        username = self.config.beeminder_username
+        resolved_goal_slug = (
+            goal_slug or self.config.review_count_goal_slug or self.config.default_goal_slug
+        )
+        if not username or not resolved_goal_slug:
+            return DateRangeSyncResult(
+                days_synced=0,
+                days_skipped=0,
+                days_failed=0,
+                total_reviews=0,
+                last_successful_date=None,
+                last_successful_datapoint=None,
+                message="Beeminder username and goal slug are required before syncing.",
+            )
+
+        days = (end - start).days
+        if days < 0:
+            return DateRangeSyncResult(
+                days_synced=0,
+                days_skipped=0,
+                days_failed=0,
+                total_reviews=0,
+                last_successful_date=None,
+                last_successful_datapoint=None,
+                message="Invalid date range: start must be on or before end.",
+            )
+        dates_to_sync = [start + timedelta(days=offset) for offset in range(days + 1)]
+
+        # Pre-fetch Beeminder datapoints once for the whole range.
+        prefetched: List[DatapointResponse] | None = None
+        if not self.config.dry_run:
+            fetch_count = max((end - start).days + 5, 7)
+            prefetched = self.client.list_datapoints(
+                username=username,
+                goal_slug=resolved_goal_slug,
+                count=fetch_count,
+                timeout_seconds=self.config.request_timeout_seconds,
+            )
+
+        days_synced = 0
+        days_skipped = 0
+        days_failed = 0
+        total_reviews = 0
+        last_successful_date: date_type | None = None
+        last_successful_datapoint: DatapointResponse | None = None
+        per_day_results: Dict[str, SyncResult] = {}
+
+        for day in dates_to_sync:
+            try:
+                result = self.sync_day_total(
+                    day=day,
+                    goal_slug=resolved_goal_slug,
+                    prefetched_datapoints=prefetched,
+                )
+                per_day_results[day.isoformat()] = result
+
+                if result.datapoint is not None:
+                    total_reviews += int(result.datapoint.value)
+                elif self.config.dry_run:
+                    total_reviews += self.review_count_source.count_reviews_for_day(day)
+
+                if result.posted:
+                    days_synced += 1
+                    last_successful_date = day
+                    if result.datapoint is not None:
+                        last_successful_datapoint = result.datapoint
+                    # Add newly created datapoint to prefetched list so
+                    # subsequent days can see it.
+                    if prefetched is not None and result.datapoint is not None:
+                        prefetched.append(result.datapoint)
+                else:
+                    days_skipped += 1
+                    if result.datapoint is not None:
+                        last_successful_date = day
+                        last_successful_datapoint = result.datapoint
+            except BeeminderError:
+                days_failed += 1
+                per_day_results[day.isoformat()] = SyncResult(
+                    posted=False,
+                    message=f"Failed to sync {day.isoformat()}.",
+                )
+
+        parts: List[str] = []
+        if days_synced > 0:
+            parts.append(f"Synced {days_synced} day(s)")
+        if days_skipped > 0:
+            parts.append(f"{days_skipped} already up-to-date")
+        if days_failed > 0:
+            parts.append(f"{days_failed} failed")
+        parts.append(f"{total_reviews} total reviews")
+        message = "; ".join(parts) + "."
+
+        return DateRangeSyncResult(
+            days_synced=days_synced,
+            days_skipped=days_skipped,
+            days_failed=days_failed,
+            total_reviews=total_reviews,
+            last_successful_date=last_successful_date,
+            last_successful_datapoint=last_successful_datapoint,
+            per_day_results=per_day_results,
+            message=message,
+        )
+
+    def _find_datapoint_for_day(
         self,
         username: str,
         goal_slug: str,
         day: date_type,
         requestid: str,
+        prefetched_datapoints: List[DatapointResponse] | None = None,
     ) -> DatapointResponse | None:
-        recent = self.client.list_datapoints(
-            username=username,
-            goal_slug=goal_slug,
-            count=30,
-            timeout_seconds=self.config.request_timeout_seconds,
-        )
+        if prefetched_datapoints is not None:
+            recent = prefetched_datapoints
+        else:
+            recent = self.client.list_datapoints(
+                username=username,
+                goal_slug=goal_slug,
+                count=30,
+                timeout_seconds=self.config.request_timeout_seconds,
+            )
         target_daystamp = daystamp(day)
-        todays = [item for item in recent if item.daystamp == target_daystamp or item.requestid == requestid]
-        if not todays:
+        matches = [item for item in recent if item.daystamp == target_daystamp or item.requestid == requestid]
+        if not matches:
             return None
-        todays.sort(key=lambda item: item.timestamp, reverse=True)
-        return todays[0]
+        matches.sort(key=lambda item: item.timestamp, reverse=True)
+        return matches[0]

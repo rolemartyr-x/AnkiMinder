@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 
 from .beeminder.client import BeeminderClient
-from .config import ConfigRepository
+from .config import AddonConfig, ConfigRepository
 from .exceptions import BeeminderError
 from .services.automation_service import AutomationService, TRIGGER_STARTUP, TRIGGER_SYNC
 from .services.review_count_service import (
     AnkiReviewCountSource,
+    DateRangeSyncResult,
     ReviewCountSyncService,
 )
-from .services.sync_service import SyncResult
 
 try:
     from aqt import gui_hooks, mw
@@ -42,8 +42,8 @@ class AddonApp:
     def install_menu(self) -> None:
         if QAction is None or mw is None:
             return
-        send_reviews_action = QAction("Send Today's Review Count to Beeminder", mw)
-        send_reviews_action.triggered.connect(self._send_todays_review_count)
+        send_reviews_action = QAction("Sync Review Counts to Beeminder", mw)
+        send_reviews_action.triggered.connect(self._send_review_counts)
         mw.form.menuTools.addAction(send_reviews_action)
 
     def install_hooks(self) -> None:
@@ -55,8 +55,8 @@ class AddonApp:
     def _on_sync_did_finish(self, *_args, **_kwargs) -> None:
         self._run_automation(trigger=TRIGGER_SYNC)
 
-    def _send_todays_review_count(self) -> None:
-        self._run_review_sync(day=date.today(), is_automation=False)
+    def _send_review_counts(self) -> None:
+        self._run_review_sync(is_automation=False)
 
     def _run_automation(self, trigger: str) -> None:
         config = self._config_repo.load()
@@ -64,15 +64,18 @@ class AddonApp:
         decision = self._automation.should_run(config=config, trigger=trigger, day=today)
         if not decision.should_run:
             return
-        self._run_review_sync(day=today, is_automation=True)
+        self._run_review_sync(is_automation=True)
 
-    def _run_review_sync(self, day: date, is_automation: bool) -> Optional[SyncResult]:
+    def _run_review_sync(self, is_automation: bool) -> Optional[DateRangeSyncResult]:
         config = self._config_repo.load()
         if mw is None or getattr(mw, "col", None) is None:
             self._notify("Anki collection is not available.", is_automation=is_automation, is_error=True)
             return None
 
         goal_slug = config.review_count_goal_slug or config.default_goal_slug
+        today = date.today()
+        start = self._compute_sync_start(config, today)
+
         try:
             client = BeeminderClient(auth_token=config.beeminder_auth_token)
             count_source = AnkiReviewCountSource(mw.col.db)
@@ -81,17 +84,31 @@ class AddonApp:
                 client=client,
                 review_count_source=count_source,
             )
-            result = review_sync.sync_day_total(day=day, goal_slug=goal_slug)
-            if result.datapoint is not None:
-                config.last_review_count_sync_date = day.isoformat()
-                config.last_review_count_value = int(result.datapoint.value)
-                config.last_review_count_datapoint_id = result.datapoint.id
+            result = review_sync.sync_date_range(
+                start=start,
+                end=today,
+                goal_slug=goal_slug,
+            )
+
+            if result.last_successful_datapoint is not None:
+                config.last_review_count_value = int(result.last_successful_datapoint.value)
+                config.last_review_count_datapoint_id = result.last_successful_datapoint.id
+            if result.days_synced > 0 or result.days_skipped > 0:
+                config.last_review_count_sync_date = today.isoformat()
                 self._config_repo.save(config)
-            self._notify(result.message, is_automation=is_automation, is_error=not result.posted)
+
+            self._notify(result.message, is_automation=is_automation, is_error=(result.days_failed > 0))
             return result
         except BeeminderError as error:
             self._notify(f"Beeminder sync failed: {error}", is_automation=is_automation, is_error=True)
         return None
+
+    @staticmethod
+    def _compute_sync_start(config: AddonConfig, today: date) -> date:
+        """Determine the earliest date to sync."""
+        max_lookback = config.historical_lookback_days
+        earliest_allowed = today - timedelta(days=max_lookback)
+        return earliest_allowed
 
     def _notify(self, message: str, is_automation: bool, is_error: bool = False) -> None:
         prefix = "Beeminder auto-sync" if is_automation else "Beeminder sync"
@@ -114,4 +131,3 @@ def initialize_addon(addon_module_name: str) -> None:
     APP_INSTANCE = AddonApp(addon_module_name)
     APP_INSTANCE.install_menu()
     APP_INSTANCE.install_hooks()
-
