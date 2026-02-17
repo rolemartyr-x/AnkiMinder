@@ -54,7 +54,7 @@ This design recovers missed review days and supports multiple sessions per day w
 Build a distributable `.ankiaddon` file:
 
 ```bash
-python3 scripts/build_ankiaddon.py --version 1.0.3
+python scripts/build_ankiaddon.py --version 1.0.3
 ```
 
 The output file name is always enforced as:
@@ -63,7 +63,7 @@ The output file name is always enforced as:
 Optional custom path (same enforced file name):
 
 ```bash
-python3 scripts/build_ankiaddon.py --version 1.0.3 --output dist/ankiminderV1.0.3.ankiaddon
+python scripts/build_ankiaddon.py --version 1.0.3 --output dist/ankiminderV1.0.3.ankiaddon
 ```
 
 ---

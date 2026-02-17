@@ -14,7 +14,7 @@ Thanks for contributing.
 1. Create a branch from your release/develop branch.
 2. Implement changes.
 3. Run tests:
-   - `python3 -m unittest discover -s tests`
+   - `python -m unittest discover -s tests`
 4. Update docs if behavior or config changed.
 5. Open a PR with:
    - summary of changes
