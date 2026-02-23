@@ -111,7 +111,12 @@ class ReviewCountSyncService:
                 ),
             )
 
-        request = CreateDatapointRequest(value=float(review_count), comment=comment, requestid=requestid)
+        request = CreateDatapointRequest(
+            value=float(review_count),
+            daystamp=daystamp(day),
+            comment=comment,
+            requestid=requestid,
+        )
         existing = self._find_datapoint_for_day(
             username=username,
             goal_slug=resolved_goal_slug,
@@ -234,11 +239,11 @@ class ReviewCountSyncService:
                     if result.datapoint is not None:
                         last_successful_date = day
                         last_successful_datapoint = result.datapoint
-            except BeeminderError:
+            except BeeminderError as exc:
                 days_failed += 1
                 per_day_results[day.isoformat()] = SyncResult(
                     posted=False,
-                    message=f"Failed to sync {day.isoformat()}.",
+                    message=f"Failed to sync {day.isoformat()}: {exc}",
                 )
 
         parts: List[str] = []
