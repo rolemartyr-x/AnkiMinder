@@ -12,6 +12,7 @@ class CreateDatapointRequest:
 
     value: float
     timestamp: Optional[int] = None
+    daystamp: str = ""
     comment: str = ""
     requestid: str = ""
 
@@ -19,6 +20,8 @@ class CreateDatapointRequest:
         payload: Dict[str, Any] = {"value": self.value}
         if self.timestamp is not None:
             payload["timestamp"] = self.timestamp
+        if self.daystamp:
+            payload["daystamp"] = self.daystamp
         if self.comment:
             payload["comment"] = self.comment
         if self.requestid:

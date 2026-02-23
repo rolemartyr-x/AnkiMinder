@@ -18,6 +18,15 @@ class TestModels(unittest.TestCase):
             },
         )
 
+    def test_create_datapoint_request_payload_with_daystamp(self) -> None:
+        request = CreateDatapointRequest(
+            value=10.0, daystamp="20260220", comment="historical", requestid="req-2"
+        )
+        payload = request.to_payload()
+        self.assertEqual(payload["daystamp"], "20260220")
+        self.assertEqual(payload["value"], 10.0)
+        self.assertNotIn("timestamp", payload)
+
     def test_datapoint_response_parsing(self) -> None:
         raw = {
             "id": "123",
