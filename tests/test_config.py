@@ -13,6 +13,10 @@ class TestConfig(unittest.TestCase):
         config = AddonConfig.from_dict({"automation_triggers": "startup"})
         self.assertEqual(config.automation_triggers, ["startup"])
 
+    def test_invalid_review_value_mode_falls_back_to_count(self) -> None:
+        config = AddonConfig.from_dict({"review_value_mode": "weird-mode"})
+        self.assertEqual(config.review_value_mode, "count")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -93,13 +93,21 @@ class ReviewCountSyncService:
             )
 
         review_count = self.review_count_source.count_reviews_for_day(day)
+        mode = self.config.review_value_mode if self.config.review_value_mode in {"count", "binary"} else "count"
+        outgoing_value = review_count if mode == "count" else (1 if review_count > 0 else 0)
         requestid = request_id_for_day(day, resolved_goal_slug)
-        comment = f"Anki reviews total for {day.isoformat()}: {review_count}"
+        comment = (
+            f"Anki reviews total for {day.isoformat()}: raw={review_count}, "
+            f"sent={outgoing_value} (mode={mode})"
+        )
 
-        if review_count == 0:
+        if outgoing_value == 0:
             return SyncResult(
                 posted=False,
-                message=f"No reviews on {day.isoformat()}; skipping sync.",
+                message=(
+                    f"No datapoint sent for {day.isoformat()} in {mode} mode "
+                    f"(raw={review_count}, sent={outgoing_value})."
+                ),
             )
 
         if self.config.dry_run:
@@ -107,12 +115,13 @@ class ReviewCountSyncService:
                 posted=False,
                 message=(
                     "Dry run enabled: would upsert "
-                    f"value={review_count} to {resolved_goal_slug} for {day.isoformat()}."
+                    f"value={outgoing_value} (raw={review_count}, mode={mode}) "
+                    f"to {resolved_goal_slug} for {day.isoformat()}."
                 ),
             )
 
         request = CreateDatapointRequest(
-            value=float(review_count),
+            value=float(outgoing_value),
             daystamp=daystamp(day),
             comment=comment,
             requestid=requestid,
@@ -126,10 +135,13 @@ class ReviewCountSyncService:
         )
 
         if existing is not None:
-            if int(existing.value) == review_count:
+            if int(existing.value) == outgoing_value:
                 return SyncResult(
                     posted=False,
-                    message=f"Beeminder already has {day.isoformat()} total ({review_count}); no update needed.",
+                    message=(
+                        f"Beeminder already has {day.isoformat()} total "
+                        f"(raw={review_count}, sent={outgoing_value}, mode={mode}); no update needed."
+                    ),
                     datapoint=existing,
                 )
             updated = self.client.update_datapoint(
@@ -141,7 +153,10 @@ class ReviewCountSyncService:
             )
             return SyncResult(
                 posted=True,
-                message=f"Updated Beeminder total for {day.isoformat()} to {review_count}.",
+                message=(
+                    f"Updated Beeminder total for {day.isoformat()} "
+                    f"to {outgoing_value} (raw={review_count}, mode={mode})."
+                ),
                 datapoint=updated,
             )
 
@@ -153,7 +168,10 @@ class ReviewCountSyncService:
         )
         return SyncResult(
             posted=True,
-            message=f"Created Beeminder total for {day.isoformat()} with value {review_count}.",
+            message=(
+                f"Created Beeminder total for {day.isoformat()} with value "
+                f"{outgoing_value} (raw={review_count}, mode={mode})."
+            ),
             datapoint=created,
         )
 

@@ -17,6 +17,9 @@ This add-on reads settings from `config.json`.
   - `"startup"`
 - `request_timeout_seconds`: API timeout in seconds.
 - `historical_lookback_days`: Number of days to sync on each run (default `7`).
+- `review_value_mode`: How values are sent to Beeminder:
+  - `"count"` (default): send exact daily review count.
+  - `"binary"`: send `1` when daily reviews are greater than `0`; skip write when daily reviews are `0`.
 - `dry_run`: If `true`, do not write to Beeminder.
 
 ## Internal Metadata (Auto-managed)

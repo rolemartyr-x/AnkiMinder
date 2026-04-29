@@ -83,6 +83,44 @@ class TestReviewCountService(unittest.TestCase):
             client.calls[0][2].requestid,
             request_id_for_day(date(2026, 2, 2), "anki-reviews"),
         )
+        self.assertEqual(client.calls[0][2].value, 42.0)
+
+    def test_sync_day_binary_mode_converts_nonzero_count_to_one(self) -> None:
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug="anki-reviews",
+            review_value_mode="binary",
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        service = ReviewCountSyncService(
+            config=config,
+            client=client,
+            review_count_source=FakeReviewCountSource(count=42),
+        )
+        result = service.sync_day_total(day=date(2026, 2, 2))
+        self.assertTrue(result.posted)
+        self.assertEqual(client.calls[0][2].value, 1.0)
+
+    def test_sync_day_binary_mode_skips_zero_day(self) -> None:
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug="anki-reviews",
+            review_value_mode="binary",
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        service = ReviewCountSyncService(
+            config=config,
+            client=client,
+            review_count_source=FakeReviewCountSource(count=0),
+        )
+        result = service.sync_day_total(day=date(2026, 2, 2))
+        self.assertFalse(result.posted)
+        self.assertIn("No datapoint sent", result.message)
+        self.assertEqual(len(client.calls), 0)
 
     def test_sync_day_updates_existing_datapoint(self) -> None:
         config = AddonConfig(
@@ -111,6 +149,35 @@ class TestReviewCountService(unittest.TestCase):
         self.assertEqual(len(client.updated_calls), 1)
         self.assertEqual(client.updated_calls[0][2], existing.id)
         self.assertEqual(client.updated_calls[0][3].value, 14.0)
+
+    def test_sync_day_updates_existing_datapoint_in_binary_mode(self) -> None:
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug="anki-reviews",
+            review_value_mode="binary",
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        existing = client.create_datapoint(
+            username="alice",
+            goal_slug="anki-reviews",
+            request=CreateDatapointRequest(value=5.0, comment="existing"),
+        )
+        existing.daystamp = "20260202"
+        existing.timestamp = 1738454400
+        existing.requestid = request_id_for_day(date(2026, 2, 2), "anki-reviews")
+        client.stored[existing.id] = existing
+        service = ReviewCountSyncService(
+            config=config,
+            client=client,
+            review_count_source=FakeReviewCountSource(count=14),
+        )
+        result = service.sync_day_total(day=date(2026, 2, 2))
+        self.assertTrue(result.posted)
+        self.assertEqual(len(client.updated_calls), 1)
+        self.assertEqual(client.updated_calls[0][2], existing.id)
+        self.assertEqual(client.updated_calls[0][3].value, 1.0)
 
     def test_sync_day_skips_when_todays_beeminder_value_matches(self) -> None:
         config = AddonConfig(
@@ -212,7 +279,7 @@ class TestSyncDateRange(unittest.TestCase):
         self.assertIn("2026-02-01", result.per_day_results)
         self.assertIn("2026-02-02", result.per_day_results)
         self.assertIn("2026-02-03", result.per_day_results)
-        self.assertIn("No reviews on 2026-02-02", result.per_day_results["2026-02-02"].message)
+        self.assertIn("No datapoint sent for 2026-02-02", result.per_day_results["2026-02-02"].message)
         self.assertEqual(len(client.calls), 1)
 
     def test_sync_date_range_all_zero_reviews_skips_all(self) -> None:

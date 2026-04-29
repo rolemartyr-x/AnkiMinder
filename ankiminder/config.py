@@ -19,6 +19,7 @@ class AddonConfig:
     last_review_count_sync_date: str = ""
     last_review_count_value: int = -1
     last_review_count_datapoint_id: str = ""
+    review_value_mode: str = "count"
     request_timeout_seconds: int = 10
     historical_lookback_days: int = 7
     dry_run: bool = True
@@ -26,6 +27,8 @@ class AddonConfig:
     @classmethod
     def from_dict(cls, raw: Dict[str, Any]) -> "AddonConfig":
         data = dict(raw or {})
+        raw_review_value_mode = str(data.get("review_value_mode", "count")).strip().lower()
+        review_value_mode = raw_review_value_mode if raw_review_value_mode in {"count", "binary"} else "count"
         raw_triggers = data.get("automation_triggers", ["sync"])
         if isinstance(raw_triggers, list):
             triggers = [str(item).strip() for item in raw_triggers if str(item).strip()]
@@ -45,6 +48,7 @@ class AddonConfig:
             last_review_count_datapoint_id=str(
                 data.get("last_review_count_datapoint_id", "")
             ).strip(),
+            review_value_mode=review_value_mode,
             request_timeout_seconds=int(data.get("request_timeout_seconds", 10)),
             historical_lookback_days=int(data.get("historical_lookback_days", 7)),
             dry_run=bool(data.get("dry_run", True)),

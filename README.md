@@ -96,6 +96,9 @@ Config options (all current keys):
 - `last_review_count_sync_date` (string): internal metadata (`YYYY-MM-DD`), auto-managed.
 - `last_review_count_value` (int): internal metadata, auto-managed.
 - `last_review_count_datapoint_id` (string): internal metadata, auto-managed.
+- `review_value_mode` (string): controls outgoing datapoint value mode; default is `"count"` for backward compatibility.
+  - `"count"`: sends exact review count.
+  - `"binary"`: sends `1` when review count is greater than `0`, and skips sending on zero-review days.
 - `request_timeout_seconds` (int): Beeminder API timeout.
 - `historical_lookback_days` (int): number of days to re-sync each run (default `7`).
 - `dry_run` (bool): if true, no write is sent to Beeminder.
@@ -112,6 +115,7 @@ Example:
   "review_count_goal_slug": "anki-reviews",
   "automation_enabled": true,
   "automation_triggers": ["sync", "startup"],
+  "review_value_mode": "count",
   "request_timeout_seconds": 10,
   "historical_lookback_days": 7,
   "dry_run": true
