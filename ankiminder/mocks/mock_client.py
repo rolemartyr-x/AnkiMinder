@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List
 
 from ..beeminder.models import CreateDatapointRequest, DatapointResponse
 
@@ -12,10 +11,10 @@ from ..beeminder.models import CreateDatapointRequest, DatapointResponse
 class MockBeeminderClient:
     """In-memory fake client that records datapoint calls."""
 
-    created: List[DatapointResponse] = field(default_factory=list)
-    calls: List[tuple[str, str, CreateDatapointRequest, int]] = field(default_factory=list)
-    updated_calls: List[tuple[str, str, str, CreateDatapointRequest, int]] = field(default_factory=list)
-    stored: Dict[str, DatapointResponse] = field(default_factory=dict)
+    created: list[DatapointResponse] = field(default_factory=list)
+    calls: list[tuple[str, str, CreateDatapointRequest, int]] = field(default_factory=list)
+    updated_calls: list[tuple[str, str, str, CreateDatapointRequest, int]] = field(default_factory=list)
+    stored: dict[str, DatapointResponse] = field(default_factory=dict)
 
     def create_datapoint(
         self,
@@ -61,7 +60,7 @@ class MockBeeminderClient:
         goal_slug: str,
         count: int = 7,
         timeout_seconds: int = 10,
-    ) -> List[DatapointResponse]:
+    ) -> list[DatapointResponse]:
         _ = (username, goal_slug, count, timeout_seconds)
         return list(self.stored.values())
 

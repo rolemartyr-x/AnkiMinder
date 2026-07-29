@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date as date_type
 from datetime import datetime, time, timedelta
-from typing import Any, Dict, List, Protocol, Tuple
+from typing import Any, Protocol
 
 from ..beeminder.client import BeeminderClient
 from ..beeminder.models import CreateDatapointRequest, DatapointResponse
@@ -15,8 +15,18 @@ from .sync_service import SyncResult
 
 REQUEST_ID_PREFIX = "anki-review-count"
 
+# Fallback lookup window used when no prefetched datapoints are available for
+# a single-day sync (see ``_find_datapoint_for_day``).
+FALLBACK_DATAPOINT_LOOKUP_COUNT = 30
 
-def day_bounds_epoch_millis(day: date_type) -> Tuple[int, int]:
+# Minimum number of recent datapoints to prefetch for a date-range sync, plus
+# a small buffer above the range length itself so recently created/renamed
+# datapoints near the boundary are still visible.
+MIN_PREFETCH_COUNT = 7
+PREFETCH_BUFFER_DAYS = 5
+
+
+def day_bounds_epoch_millis(day: date_type) -> tuple[int, int]:
     """Return inclusive/exclusive local-day bounds in epoch milliseconds."""
 
     start = datetime.combine(day, time.min).astimezone()
@@ -66,8 +76,22 @@ class DateRangeSyncResult:
     total_reviews: int
     last_successful_date: date_type | None
     last_successful_datapoint: DatapointResponse | None
-    per_day_results: Dict[str, SyncResult] = field(default_factory=dict)
+    per_day_results: dict[str, SyncResult] = field(default_factory=dict)
     message: str = ""
+
+
+def _empty_date_range_result(message: str) -> DateRangeSyncResult:
+    """Build a zeroed-out result for early-exit validation failures."""
+
+    return DateRangeSyncResult(
+        days_synced=0,
+        days_skipped=0,
+        days_failed=0,
+        total_reviews=0,
+        last_successful_date=None,
+        last_successful_datapoint=None,
+        message=message,
+    )
 
 
 @dataclass
@@ -78,11 +102,27 @@ class ReviewCountSyncService:
     client: BeeminderClient
     review_count_source: ReviewCountSource
 
+    @classmethod
+    def from_config(
+        cls,
+        config: AddonConfig,
+        review_count_source: ReviewCountSource,
+    ) -> "ReviewCountSyncService":
+        """Build a service with a Beeminder client constructed from ``config``.
+
+        Keeps ``BeeminderClient`` construction inside the services layer so
+        callers such as ``addon.py`` never need to import the client layer
+        directly (dependencies flow downward only: UI -> services -> client).
+        """
+
+        client = BeeminderClient(auth_token=config.beeminder_auth_token)
+        return cls(config=config, client=client, review_count_source=review_count_source)
+
     def sync_day_total(
         self,
         day: date_type,
         goal_slug: str = "",
-        prefetched_datapoints: List[DatapointResponse] | None = None,
+        prefetched_datapoints: list[DatapointResponse] | None = None,
     ) -> SyncResult:
         username = self.config.beeminder_username
         resolved_goal_slug = goal_slug or self.config.review_count_goal_slug or self.config.default_goal_slug
@@ -169,33 +209,19 @@ class ReviewCountSyncService:
             goal_slug or self.config.review_count_goal_slug or self.config.default_goal_slug
         )
         if not username or not resolved_goal_slug:
-            return DateRangeSyncResult(
-                days_synced=0,
-                days_skipped=0,
-                days_failed=0,
-                total_reviews=0,
-                last_successful_date=None,
-                last_successful_datapoint=None,
-                message="Beeminder username and goal slug are required before syncing.",
+            return _empty_date_range_result(
+                "Beeminder username and goal slug are required before syncing."
             )
 
         days = (end - start).days
         if days < 0:
-            return DateRangeSyncResult(
-                days_synced=0,
-                days_skipped=0,
-                days_failed=0,
-                total_reviews=0,
-                last_successful_date=None,
-                last_successful_datapoint=None,
-                message="Invalid date range: start must be on or before end.",
-            )
+            return _empty_date_range_result("Invalid date range: start must be on or before end.")
         dates_to_sync = [start + timedelta(days=offset) for offset in range(days + 1)]
 
         # Pre-fetch Beeminder datapoints once for the whole range.
-        prefetched: List[DatapointResponse] | None = None
+        prefetched: list[DatapointResponse] | None = None
         if not self.config.dry_run:
-            fetch_count = max((end - start).days + 5, 7)
+            fetch_count = max(days + PREFETCH_BUFFER_DAYS, MIN_PREFETCH_COUNT)
             prefetched = self.client.list_datapoints(
                 username=username,
                 goal_slug=resolved_goal_slug,
@@ -209,7 +235,7 @@ class ReviewCountSyncService:
         total_reviews = 0
         last_successful_date: date_type | None = None
         last_successful_datapoint: DatapointResponse | None = None
-        per_day_results: Dict[str, SyncResult] = {}
+        per_day_results: dict[str, SyncResult] = {}
 
         for day in dates_to_sync:
             try:
@@ -246,7 +272,7 @@ class ReviewCountSyncService:
                     message=f"Failed to sync {day.isoformat()}: {exc}",
                 )
 
-        parts: List[str] = []
+        parts: list[str] = []
         if days_synced > 0:
             parts.append(f"Synced {days_synced} day(s)")
         if days_skipped > 0:
@@ -273,7 +299,7 @@ class ReviewCountSyncService:
         goal_slug: str,
         day: date_type,
         requestid: str,
-        prefetched_datapoints: List[DatapointResponse] | None = None,
+        prefetched_datapoints: list[DatapointResponse] | None = None,
     ) -> DatapointResponse | None:
         if prefetched_datapoints is not None:
             recent = prefetched_datapoints
@@ -281,7 +307,7 @@ class ReviewCountSyncService:
             recent = self.client.list_datapoints(
                 username=username,
                 goal_slug=goal_slug,
-                count=30,
+                count=FALLBACK_DATAPOINT_LOOKUP_COUNT,
                 timeout_seconds=self.config.request_timeout_seconds,
             )
         target_daystamp = daystamp(day)

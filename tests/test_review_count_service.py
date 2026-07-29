@@ -1,6 +1,7 @@
 import unittest
 from datetime import date
 
+from ankiminder.beeminder.client import BeeminderClient
 from ankiminder.beeminder.models import CreateDatapointRequest
 from ankiminder.config import AddonConfig
 from ankiminder.mocks.mock_client import MockBeeminderClient
@@ -160,6 +161,23 @@ class TestReviewCountService(unittest.TestCase):
         self.assertTrue(result.posted)
         self.assertEqual(len(client.calls), 1)
         self.assertEqual(len(client.updated_calls), 0)
+
+
+class TestFromConfig(unittest.TestCase):
+    def test_builds_client_from_config_auth_token(self) -> None:
+        """``from_config`` must be the only place addon.py needs to build a client."""
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="  secret-token  ",
+            review_count_goal_slug="anki-reviews",
+        )
+        source = FakeReviewCountSource(count=0)
+        service = ReviewCountSyncService.from_config(config=config, review_count_source=source)
+
+        self.assertIsInstance(service.client, BeeminderClient)
+        self.assertEqual(service.client._auth_token, "secret-token")
+        self.assertEqual(service.config, config)
+        self.assertIs(service.review_count_source, source)
 
 
 class TestSyncDateRange(unittest.TestCase):

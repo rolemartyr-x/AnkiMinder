@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from ..exceptions import BeeminderRequestError
+
+DEFAULT_TIMEOUT_SECONDS = 10
 
 
 @dataclass
@@ -18,7 +20,7 @@ class HttpResponse:
 
     status_code: int
     body: str
-    headers: Dict[str, str]
+    headers: dict[str, str]
 
 
 class Transport(Protocol):
@@ -28,9 +30,9 @@ class Transport(Protocol):
         self,
         method: str,
         url: str,
-        params: Optional[Dict[str, Any]] = None,
-        data: Optional[Dict[str, Any]] = None,
-        timeout_seconds: int = 10,
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     ) -> HttpResponse:
         ...
 
@@ -42,9 +44,9 @@ class UrllibTransport:
         self,
         method: str,
         url: str,
-        params: Optional[Dict[str, Any]] = None,
-        data: Optional[Dict[str, Any]] = None,
-        timeout_seconds: int = 10,
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     ) -> HttpResponse:
         query = urlencode(params or {}, doseq=True)
         url_with_query = f"{url}?{query}" if query else url
@@ -83,7 +85,7 @@ def parse_json_body(response: HttpResponse) -> Any:
     return parsed
 
 
-def parse_json_object(response: HttpResponse) -> Dict[str, Any]:
+def parse_json_object(response: HttpResponse) -> dict[str, Any]:
     """Decode JSON and require an object payload."""
 
     parsed = parse_json_body(response)

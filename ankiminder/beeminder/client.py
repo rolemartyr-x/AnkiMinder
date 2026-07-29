@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from urllib.parse import quote
 
 from .models import (
     CreateDatapointRequest,
@@ -10,12 +10,16 @@ from .models import (
     UserResponse,
 )
 from .transport import (
+    DEFAULT_TIMEOUT_SECONDS,
+    HttpResponse,
     Transport,
     UrllibTransport,
     parse_json_body,
     parse_json_object,
 )
 from ..exceptions import BeeminderAuthError, BeeminderRequestError
+
+DEFAULT_BASE_URL = "https://www.beeminder.com/api/v1"
 
 
 class BeeminderClient:
@@ -24,17 +28,17 @@ class BeeminderClient:
     def __init__(
         self,
         auth_token: str,
-        transport: Optional[Transport] = None,
-        base_url: str = "https://www.beeminder.com/api/v1",
+        transport: Transport | None = None,
+        base_url: str = DEFAULT_BASE_URL,
     ):
         self._auth_token = auth_token.strip()
         self._transport = transport or UrllibTransport()
         self._base_url = base_url.rstrip("/")
 
-    def get_user(self, username: str, timeout_seconds: int = 10) -> UserResponse:
+    def get_user(self, username: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> UserResponse:
         response = self._transport.request(
             method="GET",
-            url=f"{self._base_url}/users/{username}.json",
+            url=f"{self._base_url}/users/{quote(username, safe='')}.json",
             params={"auth_token": self._auth_token},
             timeout_seconds=timeout_seconds,
         )
@@ -46,11 +50,14 @@ class BeeminderClient:
         username: str,
         goal_slug: str,
         request: CreateDatapointRequest,
-        timeout_seconds: int = 10,
+        timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     ) -> DatapointResponse:
         response = self._transport.request(
             method="POST",
-            url=f"{self._base_url}/users/{username}/goals/{goal_slug}/datapoints.json",
+            url=(
+                f"{self._base_url}/users/{quote(username, safe='')}"
+                f"/goals/{quote(goal_slug, safe='')}/datapoints.json"
+            ),
             data={"auth_token": self._auth_token, **request.to_payload()},
             timeout_seconds=timeout_seconds,
         )
@@ -62,11 +69,14 @@ class BeeminderClient:
         username: str,
         goal_slug: str,
         count: int = 7,
-        timeout_seconds: int = 10,
-    ) -> List[DatapointResponse]:
+        timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    ) -> list[DatapointResponse]:
         response = self._transport.request(
             method="GET",
-            url=f"{self._base_url}/users/{username}/goals/{goal_slug}/datapoints.json",
+            url=(
+                f"{self._base_url}/users/{quote(username, safe='')}"
+                f"/goals/{quote(goal_slug, safe='')}/datapoints.json"
+            ),
             params={"auth_token": self._auth_token, "count": count},
             timeout_seconds=timeout_seconds,
         )
@@ -83,11 +93,15 @@ class BeeminderClient:
         goal_slug: str,
         datapoint_id: str,
         request: CreateDatapointRequest,
-        timeout_seconds: int = 10,
+        timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     ) -> DatapointResponse:
         response = self._transport.request(
             method="PUT",
-            url=f"{self._base_url}/users/{username}/goals/{goal_slug}/datapoints/{datapoint_id}.json",
+            url=(
+                f"{self._base_url}/users/{quote(username, safe='')}"
+                f"/goals/{quote(goal_slug, safe='')}"
+                f"/datapoints/{quote(datapoint_id, safe='')}.json"
+            ),
             data={"auth_token": self._auth_token, **request.to_payload()},
             timeout_seconds=timeout_seconds,
         )
@@ -95,7 +109,7 @@ class BeeminderClient:
         return DatapointResponse.from_json(payload)
 
     @staticmethod
-    def _parse_and_raise(status_code: int, response) -> dict:
+    def _parse_and_raise(status_code: int, response: HttpResponse) -> dict:
         payload = parse_json_object(response)
         if status_code < 400:
             return payload

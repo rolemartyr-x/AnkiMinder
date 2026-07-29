@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 @dataclass
@@ -11,13 +11,13 @@ class CreateDatapointRequest:
     """Request payload for creating a Beeminder datapoint."""
 
     value: float
-    timestamp: Optional[int] = None
+    timestamp: int | None = None
     daystamp: str = ""
     comment: str = ""
     requestid: str = ""
 
-    def to_payload(self) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {"value": self.value}
+    def to_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"value": self.value}
         if self.timestamp is not None:
             payload["timestamp"] = self.timestamp
         if self.daystamp:
@@ -42,7 +42,7 @@ class DatapointResponse:
     fulltext: str = ""
 
     @classmethod
-    def from_json(cls, raw: Dict[str, Any]) -> "DatapointResponse":
+    def from_json(cls, raw: dict[str, Any]) -> "DatapointResponse":
         return cls(
             id=str(raw.get("id", "")),
             value=float(raw.get("value", 0.0)),
@@ -62,7 +62,7 @@ class UserResponse:
     timezone: str = ""
 
     @classmethod
-    def from_json(cls, raw: Dict[str, Any]) -> "UserResponse":
+    def from_json(cls, raw: dict[str, Any]) -> "UserResponse":
         return cls(
             username=str(raw.get("username", "")),
             timezone=str(raw.get("timezone", "")),
