@@ -73,6 +73,10 @@ def iter_package_files() -> list[tuple[Path, str]]:
                 continue
             if "__pycache__" in child.parts or child.suffix in {".pyc", ".pyo"}:
                 continue
+            if "mocks" in child.parts:
+                # Test doubles are for tests/ only; they must not ship in
+                # the distributed .ankiaddon package.
+                continue
             items.append((child, str(child.relative_to(REPO_ROOT)).replace("\\", "/")))
 
     for entry in REQUIRED_ENTRIES:

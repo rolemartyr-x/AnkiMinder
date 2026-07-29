@@ -56,6 +56,19 @@ class TestBeeminderClient(unittest.TestCase):
         with self.assertRaises(BeeminderRequestError):
             client.list_datapoints("alice", "anki")
 
+    def test_username_and_goal_slug_are_percent_encoded_in_url(self) -> None:
+        """A stray `/` or space in a self-typed goal slug must not alter the
+        request path -- it should be encoded into the segment, not create
+        new path segments."""
+        transport = MockTransport()
+        transport.queue_json(200, {"unexpected": "object"})
+        client = BeeminderClient(auth_token="token", transport=transport)
+        with self.assertRaises(BeeminderRequestError):
+            client.list_datapoints("ali ce", "anki/reviews")
+
+        url = transport.requests[0].url
+        self.assertIn("/users/ali%20ce/goals/anki%2Freviews/datapoints.json", url)
+
 
 if __name__ == "__main__":
     unittest.main()

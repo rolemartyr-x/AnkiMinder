@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from ..beeminder.transport import HttpResponse
 
@@ -13,8 +13,8 @@ from ..beeminder.transport import HttpResponse
 class RecordedRequest:
     method: str
     url: str
-    params: Dict[str, Any]
-    data: Dict[str, Any]
+    params: dict[str, Any]
+    data: dict[str, Any]
     timeout_seconds: int
 
 
@@ -22,8 +22,8 @@ class RecordedRequest:
 class MockTransport:
     """Queue-based transport stub that records calls."""
 
-    queued_responses: List[HttpResponse] = field(default_factory=list)
-    requests: List[RecordedRequest] = field(default_factory=list)
+    queued_responses: list[HttpResponse] = field(default_factory=list)
+    requests: list[RecordedRequest] = field(default_factory=list)
 
     def queue_json(self, status_code: int, payload: Any) -> None:
         self.queued_responses.append(
@@ -34,8 +34,8 @@ class MockTransport:
         self,
         method: str,
         url: str,
-        params: Optional[Dict[str, Any]] = None,
-        data: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
         timeout_seconds: int = 10,
     ) -> HttpResponse:
         self.requests.append(
