@@ -12,13 +12,15 @@ This add-on reads settings from `config.json`.
 
 - `default_goal_slug`: Fallback goal slug if `review_count_goal_slug` is blank.
 - `review_completion_goal_slug`: Beeminder do-more goal slug for the binary "did I review today" (0/1) signal. This is a separate goal from `review_count_goal_slug`/`default_goal_slug` and is **never** filled in by falling back to either of them -- leave it blank to keep completion sync fully disabled, even if `review_completion_sync_enabled` is `true`.
-- `review_completion_sync_enabled`: Enable the binary completion sync (`true` / `false`, default `false`). Completion sync only runs when this is `true` *and* `review_completion_goal_slug` is non-empty.
+
+  **`review_completion_goal_slug` MUST be different from `review_count_goal_slug` (and from `default_goal_slug`, if that's what the numeric sync resolves to).** Both syncs upsert datapoints for the same day; pointing them at the same goal risks one signal's write silently overwriting the other's datapoint. The add-on detects this and **refuses to run the completion sync** (returning an error result instead of writing anything) whenever the two slugs resolve to the same goal -- create a second, dedicated Beeminder goal for completion tracking instead.
+- `review_completion_sync_enabled`: Enable the binary completion sync (`true` / `false`, default `false`). Completion sync only runs when this is `true` *and* `review_completion_goal_slug` is non-empty *and* it does not collide with the numeric goal slug (see above).
 - `automation_enabled`: Enable automatic sync (`true` / `false`).
 - `automation_triggers`: Automatic trigger list. Supported values:
   - `"sync"`
   - `"startup"`
 - `request_timeout_seconds`: API timeout in seconds.
-- `historical_lookback_days`: Number of days to sync on each run (default `7`).
+- `historical_lookback_days`: Number of days to sync on each run (default `7`). Clamped to a maximum of 365 -- values above that are silently capped rather than rejected. Each day in the window costs one sequential HTTP write per enabled signal (numeric count, and binary completion if enabled), with no bulk-API path, so a large lookback combined with completion sync roughly doubles the number of Beeminder API round-trips for that run; prefer a smaller value for routine syncs and only raise it temporarily for a one-time historical backfill.
 - `dry_run`: If `true`, do not write to Beeminder.
 
 ## Internal Metadata (Auto-managed)

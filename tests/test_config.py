@@ -1,6 +1,6 @@
 import unittest
 
-from ankiminder.config import AddonConfig
+from ankiminder.config import MAX_HISTORICAL_LOOKBACK_DAYS, AddonConfig
 
 
 class TestConfig(unittest.TestCase):
@@ -31,6 +31,15 @@ class TestConfig(unittest.TestCase):
     def test_negative_lookback_days_falls_back_to_default(self) -> None:
         config = AddonConfig.from_dict({"historical_lookback_days": -3})
         self.assertEqual(config.historical_lookback_days, 7)
+
+    def test_excessive_lookback_days_clamped_to_max(self) -> None:
+        """A huge one-time-backfill value is clamped, not rejected outright."""
+        config = AddonConfig.from_dict({"historical_lookback_days": 10_000})
+        self.assertEqual(config.historical_lookback_days, MAX_HISTORICAL_LOOKBACK_DAYS)
+
+    def test_lookback_days_at_max_is_unclamped(self) -> None:
+        config = AddonConfig.from_dict({"historical_lookback_days": MAX_HISTORICAL_LOOKBACK_DAYS})
+        self.assertEqual(config.historical_lookback_days, MAX_HISTORICAL_LOOKBACK_DAYS)
 
     def test_non_numeric_last_review_count_value_falls_back_to_default(self) -> None:
         config = AddonConfig.from_dict({"last_review_count_value": "bogus"})

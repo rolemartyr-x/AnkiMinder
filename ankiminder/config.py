@@ -7,6 +7,13 @@ from typing import Any
 
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 10
 DEFAULT_HISTORICAL_LOOKBACK_DAYS = 7
+# Soft ceiling on historical_lookback_days. Each day in the lookback window
+# costs one sequential HTTP write per enabled signal (numeric count and/or
+# binary completion), with no bulk-API path -- an unbounded value lets a
+# user accidentally trigger hundreds of sequential round-trips. Clamped
+# rather than rejected outright, since a large one-time backfill is a
+# legitimate (if slow) use case.
+MAX_HISTORICAL_LOOKBACK_DAYS = 365
 DEFAULT_LAST_REVIEW_COUNT_VALUE = -1
 DEFAULT_LAST_REVIEW_COMPLETION_VALUE = -1
 
@@ -92,6 +99,8 @@ class AddonConfig:
         )
         if lookback_days < 0:
             lookback_days = DEFAULT_HISTORICAL_LOOKBACK_DAYS
+        elif lookback_days > MAX_HISTORICAL_LOOKBACK_DAYS:
+            lookback_days = MAX_HISTORICAL_LOOKBACK_DAYS
 
         return cls(
             beeminder_username=str(data.get("beeminder_username", "")).strip(),

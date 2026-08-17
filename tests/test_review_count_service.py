@@ -7,6 +7,7 @@ from ankiminder.config import AddonConfig
 from ankiminder.exceptions import BeeminderError
 from ankiminder.mocks.mock_client import MockBeeminderClient
 from ankiminder.services.review_count_service import (
+    REQUEST_ID_PREFIX_COMPLETION,
     AnkiReviewCountSource,
     DateRangeSyncResult,
     ReviewCountSyncService,
@@ -488,10 +489,20 @@ class TestSyncCompletionDateRange(unittest.TestCase):
         self.assertEqual(result.days_skipped, 0)
         self.assertEqual(result.days_failed, 0)
         self.assertEqual(len(client.calls), 5)
+        # Days not present in `counts` implicitly have a review count of 0
+        # (see FakeReviewCountSourceWithHistory.count_reviews_for_day).
+        expected_values = {
+            date(2026, 2, 1): 1.0,  # 10 reviews -> completed
+            date(2026, 2, 2): 0.0,  # not in counts -> 0 reviews -> not completed
+            date(2026, 2, 3): 0.0,  # 0 reviews -> not completed
+            date(2026, 2, 4): 0.0,  # not in counts -> 0 reviews -> not completed
+            date(2026, 2, 5): 1.0,  # 7 reviews -> completed
+        }
         for offset in range(5):
             day = date(2026, 2, 1 + offset)
             self.assertIn(day.isoformat(), result.per_day_results)
             self.assertTrue(result.per_day_results[day.isoformat()].posted)
+            self.assertEqual(client.calls[offset][2].value, expected_values[day])
 
     def test_invalid_range_returns_empty_result_error_message(self) -> None:
         service, client = self._make_service({})
@@ -567,6 +578,224 @@ class TestSyncCompletionDateRange(unittest.TestCase):
         self.assertIn("Failed to sync 2026-02-02", result.per_day_results["2026-02-02"].message)
         self.assertTrue(result.per_day_results["2026-02-01"].posted)
         self.assertTrue(result.per_day_results["2026-02-03"].posted)
+
+
+class TestGoalSlugCollisionGuard(unittest.TestCase):
+    """Regression coverage for the goal-slug-collision datapoint corruption bug.
+
+    When ``review_completion_goal_slug`` is (mis)configured to match
+    ``review_count_goal_slug``/``default_goal_slug``, both sync loops used to
+    upsert against the same underlying set of Beeminder datapoints via
+    ``_find_datapoint_for_day``'s daystamp fallback, letting the completion
+    sync silently overwrite a live numeric datapoint's value (or vice
+    versa). These tests must fail against the pre-fix code (no config guard,
+    no requestid-family-aware fallback matching) and pass after the fix.
+    """
+
+    def test_completion_range_refuses_and_does_not_touch_numeric_datapoint(self) -> None:
+        shared_slug = "anki-shared"
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug=shared_slug,
+            review_completion_goal_slug=shared_slug,
+            review_completion_sync_enabled=True,
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        target_day = date(2026, 2, 2)
+        # Seed an existing NUMERIC-count datapoint for the day. Setting
+        # `daystamp` on the request (not just on the returned object
+        # afterward) exercises the same echo path the real Beeminder API
+        # uses -- MockBeeminderClient.create_datapoint propagates it.
+        existing = client.create_datapoint(
+            username="alice",
+            goal_slug=shared_slug,
+            request=CreateDatapointRequest(
+                value=5.0,
+                daystamp=target_day.strftime("%Y%m%d"),
+                requestid=request_id_for_day(target_day, shared_slug),
+                comment="numeric count",
+            ),
+        )
+        client.stored[existing.id] = existing
+
+        source = FakeReviewCountSourceWithHistory({target_day: 1})
+        service = ReviewCountSyncService(config=config, client=client, review_count_source=source)
+
+        result = service.sync_completion_date_range(start=target_day, end=target_day)
+
+        self.assertEqual(result.days_synced, 0)
+        self.assertEqual(result.days_failed, 0)
+        self.assertIn("must differ", result.message)
+        # The pre-existing numeric datapoint must be completely untouched:
+        # no update call issued, and its stored value/requestid unchanged.
+        self.assertEqual(len(client.updated_calls), 0)
+        stored = client.stored[existing.id]
+        self.assertEqual(stored.value, 5.0)
+        self.assertEqual(stored.requestid, request_id_for_day(target_day, shared_slug))
+
+    def test_sync_day_completion_direct_call_also_refuses_matching_slug(self) -> None:
+        shared_slug = "anki-shared"
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug=shared_slug,
+            review_completion_goal_slug=shared_slug,
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        service = ReviewCountSyncService(
+            config=config, client=client, review_count_source=FakeReviewCountSource(count=1)
+        )
+        result = service.sync_day_completion(day=date(2026, 2, 2))
+        self.assertFalse(result.posted)
+        self.assertIn("must differ", result.message)
+        self.assertEqual(len(client.calls), 0)
+
+    def test_default_goal_slug_fallback_also_triggers_guard(self) -> None:
+        """The guard must resolve review_count_goal_slug's own fallback too."""
+        shared_slug = "anki-shared"
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug="",
+            default_goal_slug=shared_slug,
+            review_completion_goal_slug=shared_slug,
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        service = ReviewCountSyncService(
+            config=config, client=client, review_count_source=FakeReviewCountSource(count=1)
+        )
+        result = service.sync_completion_date_range(start=date(2026, 2, 2), end=date(2026, 2, 2))
+        self.assertEqual(result.days_synced, 0)
+        self.assertIn("must differ", result.message)
+        self.assertEqual(len(client.calls), 0)
+
+    def test_distinct_slugs_are_unaffected_by_guard(self) -> None:
+        """Sanity check: the normal, non-colliding configuration still works."""
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug="anki-reviews",
+            review_completion_goal_slug="anki-completion",
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        service = ReviewCountSyncService(
+            config=config, client=client, review_count_source=FakeReviewCountSource(count=1)
+        )
+        result = service.sync_day_completion(day=date(2026, 2, 2))
+        self.assertTrue(result.posted)
+
+
+class TestFindDatapointForDayFamilyAwareMatching(unittest.TestCase):
+    """Direct coverage of the hardened requestid-family-aware fallback matcher."""
+
+    def _service(self) -> tuple[ReviewCountSyncService, MockBeeminderClient]:
+        config = AddonConfig(beeminder_username="alice", beeminder_auth_token="token", dry_run=False)
+        client = MockBeeminderClient()
+        service = ReviewCountSyncService(
+            config=config, client=client, review_count_source=FakeReviewCountSource(count=0)
+        )
+        return service, client
+
+    def test_daystamp_fallback_ignores_datapoint_from_other_requestid_family(self) -> None:
+        service, client = self._service()
+        day = date(2026, 2, 2)
+        numeric = client.create_datapoint(
+            username="alice",
+            goal_slug="shared",
+            request=CreateDatapointRequest(
+                value=5.0,
+                daystamp=day.strftime("%Y%m%d"),
+                requestid=request_id_for_day(day, "shared"),
+            ),
+        )
+        client.stored[numeric.id] = numeric
+
+        found = service._find_datapoint_for_day(
+            username="alice",
+            goal_slug="shared",
+            day=day,
+            requestid=request_id_for_completion_day(day, "shared"),
+            requestid_prefix=REQUEST_ID_PREFIX_COMPLETION,
+            prefetched_datapoints=list(client.stored.values()),
+        )
+        self.assertIsNone(found)
+
+    def test_daystamp_fallback_still_matches_legacy_manual_datapoint_without_requestid(self) -> None:
+        """A manually-created Beeminder datapoint (no requestid) must still match."""
+        service, client = self._service()
+        day = date(2026, 2, 2)
+        manual = client.create_datapoint(
+            username="alice",
+            goal_slug="shared",
+            request=CreateDatapointRequest(value=1.0, daystamp=day.strftime("%Y%m%d")),
+        )
+        client.stored[manual.id] = manual
+
+        found = service._find_datapoint_for_day(
+            username="alice",
+            goal_slug="shared",
+            day=day,
+            requestid=request_id_for_completion_day(day, "shared"),
+            requestid_prefix=REQUEST_ID_PREFIX_COMPLETION,
+            prefetched_datapoints=list(client.stored.values()),
+        )
+        self.assertIsNotNone(found)
+        self.assertEqual(found.id, manual.id)
+
+
+class TestPrecomputedCounts(unittest.TestCase):
+    """Coverage for the shared review-count cache (avoids duplicate revlog queries)."""
+
+    def test_precomputed_counts_used_instead_of_recounting(self) -> None:
+        class CountingSource:
+            def __init__(self, counts: dict) -> None:
+                self.counts = counts
+                self.call_count = 0
+
+            def count_reviews_for_day(self, day):
+                self.call_count += 1
+                return self.counts.get(day, 0)
+
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug="anki-reviews",
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        source = CountingSource({date(2026, 2, 1): 5})
+        service = ReviewCountSyncService(config=config, client=client, review_count_source=source)
+
+        result = service.sync_date_range(
+            start=date(2026, 2, 1),
+            end=date(2026, 2, 1),
+            precomputed_counts={date(2026, 2, 1): 5},
+        )
+        self.assertEqual(result.days_synced, 1)
+        # The count must come entirely from the cache -- the underlying
+        # source is never queried when a precomputed value is supplied.
+        self.assertEqual(source.call_count, 0)
+
+    def test_standalone_call_without_precomputed_counts_still_works(self) -> None:
+        """Default (no cache) behavior must be unchanged for existing callers."""
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug="anki-reviews",
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        source = FakeReviewCountSourceWithHistory({date(2026, 2, 1): 5})
+        service = ReviewCountSyncService(config=config, client=client, review_count_source=source)
+
+        result = service.sync_date_range(start=date(2026, 2, 1), end=date(2026, 2, 1))
+        self.assertEqual(result.days_synced, 1)
+        self.assertEqual(client.calls[0][2].value, 5.0)
 
 
 if __name__ == "__main__":

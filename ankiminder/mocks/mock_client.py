@@ -30,6 +30,7 @@ class MockBeeminderClient:
             timestamp=request.timestamp or 0,
             comment=request.comment,
             requestid=request.requestid,
+            daystamp=request.daystamp,
         )
         self.created.append(datapoint)
         self.stored[datapoint.id] = datapoint
@@ -50,6 +51,7 @@ class MockBeeminderClient:
             timestamp=request.timestamp or 0,
             comment=request.comment,
             requestid=request.requestid,
+            daystamp=request.daystamp,
         )
         self.stored[datapoint_id] = datapoint
         return datapoint

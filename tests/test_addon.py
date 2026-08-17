@@ -13,6 +13,7 @@ from unittest import mock
 
 import ankiminder.addon as addon_module
 from ankiminder.addon import AddonApp
+from ankiminder.exceptions import BeeminderError
 from ankiminder.mocks.mock_client import MockBeeminderClient
 from ankiminder.services.review_count_service import ReviewCountSyncService
 
@@ -351,6 +352,101 @@ class TestPerformReviewSyncCompletion(unittest.TestCase):
             outcome = app._perform_review_sync()
 
         self.assertTrue(outcome.is_error)
+
+    def test_completion_beeminder_error_does_not_discard_numeric_config_save(self) -> None:
+        """A ``BeeminderError`` *raised* by the completion phase (e.g. its
+        unguarded prefetch call inside ``sync_completion_date_range``) must
+        not propagate past the numeric phase's already-earned config save.
+
+        Distinct from ``test_completion_failure_surfaces_is_error_even_if_numeric_succeeds``
+        above, which only covers a *returned* failing result -- this covers
+        an *exception* escaping the completion call, which previously
+        propagated straight past ``if should_save: self._config_repo.save(config)``
+        and silently discarded the numeric phase's save.
+        """
+        config_dict = make_config_dict(
+            dry_run=True,
+            review_completion_sync_enabled=True,
+            review_completion_goal_slug="anki-completion",
+        )
+        fake_mw = make_main_window(config_dict, db_result=1)
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        with mock.patch.object(
+            ReviewCountSyncService,
+            "sync_completion_date_range",
+            side_effect=BeeminderError("bad completion goal slug"),
+        ):
+            outcome = app._perform_review_sync()
+
+        self.assertTrue(outcome.is_error)
+        self.assertIn("completion sync failed", outcome.message)
+
+        # The numeric phase's own save must still have happened despite the
+        # completion phase blowing up with an exception, not just a failing
+        # result.
+        saved = fake_mw.addonManager.saved
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["last_review_count_sync_date"], date.today().isoformat())
+        # The completion phase never completed, so its metadata is untouched.
+        self.assertEqual(saved["last_review_completion_sync_date"], "")
+
+
+class TestShouldSaveGating(unittest.TestCase):
+    """Regression coverage for `_perform_review_sync`'s two independent
+    `should_save = True` triggers (numeric branch, completion branch).
+
+    Verified manually: deleting either `should_save = True` line let all 75
+    pre-existing tests pass -- neither branch's save trigger had any
+    dedicated coverage. These tests fail if either trigger is removed.
+    """
+
+    def test_numeric_only_save_persists_numeric_fields(self) -> None:
+        """Completion disabled; numeric sync produces skipped days.
+
+        `.saved` must be populated with the numeric-phase fields -- this
+        fails if the numeric branch's `should_save = True` is removed.
+        """
+        config_dict = make_config_dict(dry_run=True)
+        fake_mw = make_main_window(config_dict, db_result=1)
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        outcome = app._perform_review_sync()
+
+        self.assertFalse(outcome.is_error)
+        saved = fake_mw.addonManager.saved
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["last_review_count_sync_date"], date.today().isoformat())
+
+    def test_completion_only_save_persists_when_numeric_sync_has_no_days(self) -> None:
+        """Numeric goal slug unset so ``sync_date_range`` short-circuits with
+        zero ``days_synced``/``days_skipped``, while completion sync (its own
+        distinct goal slug) still runs and skips days in dry-run mode.
+
+        `.saved` must still be populated with the completion-phase fields --
+        this fails if the completion branch's `should_save = True` is
+        removed, and proves the two triggers are genuinely independent
+        rather than accidentally ANDed together.
+        """
+        config_dict = make_config_dict(
+            dry_run=True,
+            review_count_goal_slug="",
+            default_goal_slug="",
+            review_completion_sync_enabled=True,
+            review_completion_goal_slug="anki-completion",
+        )
+        fake_mw = make_main_window(config_dict, db_result=1)
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        outcome = app._perform_review_sync()
+
+        self.assertFalse(outcome.is_error)
+        saved = fake_mw.addonManager.saved
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["last_review_completion_sync_date"], date.today().isoformat())
+        # The numeric phase never ran (no goal slug available), so its own
+        # metadata must stay untouched.
+        self.assertEqual(saved["last_review_count_sync_date"], "")
 
 
 if __name__ == "__main__":
