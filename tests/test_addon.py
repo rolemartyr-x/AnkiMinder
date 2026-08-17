@@ -353,6 +353,35 @@ class TestPerformReviewSyncCompletion(unittest.TestCase):
 
         self.assertTrue(outcome.is_error)
 
+    def test_completion_goal_slug_collision_surfaces_as_error(self) -> None:
+        """End-to-end regression coverage for the round-2 finding: a real
+        goal-slug-collision refusal (`review_completion_goal_slug` equal to
+        `review_count_goal_slug`) must be surfaced as an error to the user.
+
+        Runs `_perform_review_sync()` for real (no mocking of
+        `sync_completion_date_range`) so this exercises the actual guard in
+        `ReviewCountSyncService._completion_goal_conflicts_with_count_goal`
+        plus the `DateRangeSyncResult.blocked` plumbing through to
+        `AddonApp._perform_review_sync`'s `completion_failed` derivation.
+        Before the fix, the guard's `days_failed=0` result meant
+        `completion_failed = completion_result.days_failed > 0` never
+        fired, so this misconfiguration produced `is_error=False` -- an
+        ordinary-looking, short-duration success tooltip.
+        """
+        config_dict = make_config_dict(
+            dry_run=True,
+            review_count_goal_slug="shared",
+            review_completion_sync_enabled=True,
+            review_completion_goal_slug="shared",
+        )
+        fake_mw = make_main_window(config_dict, db_result=1)
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        outcome = app._perform_review_sync()
+
+        self.assertTrue(outcome.is_error)
+        self.assertIn("must differ", outcome.message)
+
     def test_completion_beeminder_error_does_not_discard_numeric_config_save(self) -> None:
         """A ``BeeminderError`` *raised* by the completion phase (e.g. its
         unguarded prefetch call inside ``sync_completion_date_range``) must

@@ -797,6 +797,56 @@ class TestPrecomputedCounts(unittest.TestCase):
         self.assertEqual(result.days_synced, 1)
         self.assertEqual(client.calls[0][2].value, 5.0)
 
+    def test_missing_day_in_precomputed_counts_falls_back_to_source_for_that_day_only(self) -> None:
+        """A day absent from ``precomputed_counts`` must trigger exactly one
+        fresh ``count_reviews_for_day`` call for that day -- days present in
+        the dict must never be re-queried.
+
+        Regression coverage for the round-2 finding: mutation testing (a
+        temporary swap to ``precomputed_counts.get(day, 0)``, which
+        silently treats a missing day as zero reviews instead of falling
+        back to the source) left the full suite passing with no test
+        catching it. This test's ``queried_days`` assertion fails against
+        that mutation, since the missing day would never reach the source
+        at all under the ``.get(day, 0)`` version.
+        """
+
+        class CountingSource:
+            def __init__(self, counts: dict) -> None:
+                self.counts = counts
+                self.queried_days: list = []
+
+            def count_reviews_for_day(self, day):
+                self.queried_days.append(day)
+                return self.counts.get(day, 0)
+
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug="anki-reviews",
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        first_day = date(2026, 2, 1)
+        middle_day = date(2026, 2, 2)
+        last_day = date(2026, 2, 3)
+        source = CountingSource({first_day: 3, middle_day: 7, last_day: 2})
+        service = ReviewCountSyncService(config=config, client=client, review_count_source=source)
+
+        # middle_day deliberately omitted from the precomputed dict.
+        precomputed = {first_day: 3, last_day: 2}
+
+        result = service.sync_date_range(
+            start=first_day,
+            end=last_day,
+            precomputed_counts=precomputed,
+        )
+
+        self.assertEqual(result.days_synced, 3)
+        # Only the day missing from the precomputed dict reaches the source;
+        # the two days already covered by the dict are never re-queried.
+        self.assertEqual(source.queried_days, [middle_day])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -229,7 +229,11 @@ class AddonApp:
                         config.last_review_completion_sync_date = today.isoformat()
                         should_save = True
                     completion_message = completion_result.message
-                    completion_failed = completion_result.days_failed > 0
+                    # `blocked` covers a guard (e.g. goal-slug collision)
+                    # refusing to run at all -- days_failed stays 0 in that
+                    # case since no per-day sync was even attempted, so it
+                    # must be checked independently to surface as an error.
+                    completion_failed = completion_result.days_failed > 0 or completion_result.blocked
 
             if should_save:
                 self._config_repo.save(config)

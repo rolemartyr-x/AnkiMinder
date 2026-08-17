@@ -93,7 +93,15 @@ class AnkiReviewCountSource:
 
 @dataclass
 class DateRangeSyncResult:
-    """Aggregate result from syncing a range of dates."""
+    """Aggregate result from syncing a range of dates.
+
+    ``blocked`` is distinct from ``days_failed``: it marks a result where no
+    per-day sync was even attempted because a guard refused to run at all
+    (e.g. the completion/numeric goal-slug-collision guard), as opposed to a
+    range that ran normally but had some per-day failures. Callers must
+    treat a blocked result as an error even though days_synced/skipped/failed
+    are all zero -- see ``addon.py``'s ``_perform_review_sync``.
+    """
 
     days_synced: int
     days_skipped: int
@@ -103,9 +111,10 @@ class DateRangeSyncResult:
     last_successful_datapoint: DatapointResponse | None
     per_day_results: dict[str, SyncResult] = field(default_factory=dict)
     message: str = ""
+    blocked: bool = False
 
 
-def _empty_date_range_result(message: str) -> DateRangeSyncResult:
+def _empty_date_range_result(message: str, blocked: bool = False) -> DateRangeSyncResult:
     """Build a zeroed-out result for early-exit validation failures."""
 
     return DateRangeSyncResult(
@@ -116,6 +125,7 @@ def _empty_date_range_result(message: str) -> DateRangeSyncResult:
         last_successful_date=None,
         last_successful_datapoint=None,
         message=message,
+        blocked=blocked,
     )
 
 
@@ -394,7 +404,9 @@ class ReviewCountSyncService:
             )
 
         if self._completion_goal_conflicts_with_count_goal(resolved_goal_slug):
-            return _empty_date_range_result(self._goal_slug_conflict_message(resolved_goal_slug))
+            return _empty_date_range_result(
+                self._goal_slug_conflict_message(resolved_goal_slug), blocked=True
+            )
 
         return self._sync_date_range_generic(
             start=start,
