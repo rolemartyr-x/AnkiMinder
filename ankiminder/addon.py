@@ -176,14 +176,45 @@ class AddonApp:
                     goal_slug=goal_slug,
                 )
 
+                should_save = False
                 if result.last_successful_datapoint is not None:
                     config.last_review_count_value = int(result.last_successful_datapoint.value)
                     config.last_review_count_datapoint_id = result.last_successful_datapoint.id
                 if result.days_synced > 0 or result.days_skipped > 0:
                     config.last_review_count_sync_date = today.isoformat()
+                    should_save = True
+
+                completion_message = ""
+                completion_failed = False
+                if config.review_completion_sync_enabled and config.review_completion_goal_slug:
+                    completion_result: DateRangeSyncResult = review_sync.sync_completion_date_range(
+                        start=start,
+                        end=today,
+                        goal_slug=config.review_completion_goal_slug,
+                    )
+                    if completion_result.last_successful_datapoint is not None:
+                        config.last_review_completion_value = int(
+                            completion_result.last_successful_datapoint.value
+                        )
+                        config.last_review_completion_datapoint_id = (
+                            completion_result.last_successful_datapoint.id
+                        )
+                    if completion_result.days_synced > 0 or completion_result.days_skipped > 0:
+                        config.last_review_completion_sync_date = today.isoformat()
+                        should_save = True
+                    completion_message = completion_result.message
+                    completion_failed = completion_result.days_failed > 0
+
+                if should_save:
                     self._config_repo.save(config)
 
-                return _SyncOutcome(result.message, result.days_failed > 0)
+                combined_message = (
+                    result.message
+                    if not completion_message
+                    else f"{result.message} Completion: {completion_message}"
+                )
+                is_error = result.days_failed > 0 or completion_failed
+                return _SyncOutcome(combined_message, is_error)
             except BeeminderError as error:
                 return _SyncOutcome(f"Beeminder sync failed: {error}", True)
 

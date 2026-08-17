@@ -7,11 +7,13 @@ available in this test environment) and without ever touching the network.
 
 import threading
 import unittest
+from datetime import date
 from types import SimpleNamespace
 from unittest import mock
 
 import ankiminder.addon as addon_module
 from ankiminder.addon import AddonApp
+from ankiminder.mocks.mock_client import MockBeeminderClient
 from ankiminder.services.review_count_service import ReviewCountSyncService
 
 
@@ -240,6 +242,115 @@ class TestPerformReviewSync(unittest.TestCase):
                 thread.join()
 
         self.assertEqual(max_active, 1)
+
+
+class TestPerformReviewSyncCompletion(unittest.TestCase):
+    def test_completion_disabled_by_default_only_numeric_sync_runs(self) -> None:
+        fake_mw = make_main_window(make_config_dict(dry_run=True))
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        with mock.patch.object(
+            ReviewCountSyncService, "sync_completion_date_range"
+        ) as fake_completion_sync:
+            outcome = app._perform_review_sync()
+
+        fake_completion_sync.assert_not_called()
+        self.assertFalse(outcome.is_error)
+        self.assertNotIn("Completion:", outcome.message)
+
+    def test_completion_enabled_with_goal_slug_runs_both_syncs_once(self) -> None:
+        """Both syncs run and share a single config save -- no live network calls.
+
+        ``ReviewCountSyncService.from_config`` normally builds a real
+        ``BeeminderClient`` (real HTTP); it's patched here to build the
+        service around ``MockBeeminderClient`` instead so this test never
+        touches the network, per this repo's mocking rules.
+        """
+        config_dict = make_config_dict(
+            dry_run=False,
+            review_completion_sync_enabled=True,
+            review_completion_goal_slug="anki-completion",
+        )
+        fake_mw = make_main_window(config_dict, db_result=1)
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        mock_client = MockBeeminderClient()
+
+        def fake_from_config(config, review_count_source):
+            return ReviewCountSyncService(
+                config=config, client=mock_client, review_count_source=review_count_source
+            )
+
+        with mock.patch.object(
+            ReviewCountSyncService, "from_config", side_effect=fake_from_config
+        ):
+            outcome = app._perform_review_sync()
+
+        self.assertFalse(outcome.is_error)
+        self.assertIn("Completion:", outcome.message)
+
+        goal_slugs_called = {call[1] for call in mock_client.calls}
+        self.assertIn("anki-reviews", goal_slugs_called)
+        self.assertIn("anki-completion", goal_slugs_called)
+
+        saved = fake_mw.addonManager.saved
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["last_review_count_sync_date"], date.today().isoformat())
+        self.assertEqual(saved["last_review_completion_sync_date"], date.today().isoformat())
+        self.assertIn("last_review_completion_value", saved)
+        self.assertIn("last_review_completion_datapoint_id", saved)
+
+    def test_completion_enabled_but_goal_slug_empty_skips_completion(self) -> None:
+        config_dict = make_config_dict(
+            dry_run=True,
+            review_completion_sync_enabled=True,
+            review_completion_goal_slug="",
+        )
+        fake_mw = make_main_window(config_dict)
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        with mock.patch.object(
+            ReviewCountSyncService, "sync_completion_date_range"
+        ) as fake_completion_sync:
+            outcome = app._perform_review_sync()
+
+        fake_completion_sync.assert_not_called()
+        self.assertFalse(outcome.is_error)
+        self.assertNotIn("Completion:", outcome.message)
+
+    def test_completion_failure_surfaces_is_error_even_if_numeric_succeeds(self) -> None:
+        """Numeric sync stays in dry-run (always "succeeds") so this test can
+        exercise only the completion failure path without touching the
+        network -- ``sync_completion_date_range`` is mocked directly below.
+        """
+        config_dict = make_config_dict(
+            dry_run=True,
+            review_completion_sync_enabled=True,
+            review_completion_goal_slug="anki-completion",
+        )
+        fake_mw = make_main_window(config_dict, db_result=1)
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        from ankiminder.services.review_count_service import DateRangeSyncResult
+
+        failing_completion_result = DateRangeSyncResult(
+            days_synced=0,
+            days_skipped=0,
+            days_failed=1,
+            total_reviews=0,
+            last_successful_date=None,
+            last_successful_datapoint=None,
+            message="1 failed.",
+        )
+
+        with mock.patch.object(
+            ReviewCountSyncService,
+            "sync_completion_date_range",
+            return_value=failing_completion_result,
+        ):
+            outcome = app._perform_review_sync()
+
+        self.assertTrue(outcome.is_error)
 
 
 if __name__ == "__main__":
