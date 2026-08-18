@@ -14,6 +14,7 @@ from .services.review_count_service import (
     AnkiReviewCountSource,
     DateRangeSyncResult,
     ReviewCountSyncService,
+    dates_between,
 )
 
 try:
@@ -164,28 +165,86 @@ class AddonApp:
             today = date.today()
             start = self._compute_sync_start(config, today)
 
+            count_source = AnkiReviewCountSource(self._mw.col.db)
+            review_sync = ReviewCountSyncService.from_config(
+                config=config,
+                review_count_source=count_source,
+            )
+            # Both the numeric and completion syncs cover the identical date
+            # range; computing each day's revlog count once here and handing
+            # it to both avoids querying the same day twice when completion
+            # sync is enabled.
+            review_counts = {
+                day: count_source.count_reviews_for_day(day)
+                for day in dates_between(start, today)
+            }
+
             try:
-                count_source = AnkiReviewCountSource(self._mw.col.db)
-                review_sync = ReviewCountSyncService.from_config(
-                    config=config,
-                    review_count_source=count_source,
-                )
                 result: DateRangeSyncResult = review_sync.sync_date_range(
                     start=start,
                     end=today,
                     goal_slug=goal_slug,
+                    precomputed_counts=review_counts,
                 )
-
-                if result.last_successful_datapoint is not None:
-                    config.last_review_count_value = int(result.last_successful_datapoint.value)
-                    config.last_review_count_datapoint_id = result.last_successful_datapoint.id
-                if result.days_synced > 0 or result.days_skipped > 0:
-                    config.last_review_count_sync_date = today.isoformat()
-                    self._config_repo.save(config)
-
-                return _SyncOutcome(result.message, result.days_failed > 0)
             except BeeminderError as error:
                 return _SyncOutcome(f"Beeminder sync failed: {error}", True)
+
+            should_save = False
+            if result.last_successful_datapoint is not None:
+                config.last_review_count_value = int(result.last_successful_datapoint.value)
+                config.last_review_count_datapoint_id = result.last_successful_datapoint.id
+            if result.days_synced > 0 or result.days_skipped > 0:
+                config.last_review_count_sync_date = today.isoformat()
+                should_save = True
+
+            completion_message = ""
+            completion_failed = False
+            if config.review_completion_sync_enabled and config.review_completion_goal_slug:
+                # Guarded independently of the numeric sync above: a failure
+                # here (bad completion goal slug, a transient network error
+                # during the completion prefetch, etc.) must not discard the
+                # numeric phase's already-earned config save below.
+                completion_result: DateRangeSyncResult | None
+                try:
+                    completion_result = review_sync.sync_completion_date_range(
+                        start=start,
+                        end=today,
+                        goal_slug=config.review_completion_goal_slug,
+                        precomputed_counts=review_counts,
+                    )
+                except BeeminderError as error:
+                    completion_result = None
+                    completion_message = f"completion sync failed: {error}"
+                    completion_failed = True
+
+                if completion_result is not None:
+                    if completion_result.last_successful_datapoint is not None:
+                        config.last_review_completion_value = int(
+                            completion_result.last_successful_datapoint.value
+                        )
+                        config.last_review_completion_datapoint_id = (
+                            completion_result.last_successful_datapoint.id
+                        )
+                    if completion_result.days_synced > 0 or completion_result.days_skipped > 0:
+                        config.last_review_completion_sync_date = today.isoformat()
+                        should_save = True
+                    completion_message = completion_result.message
+                    # `blocked` covers a guard (e.g. goal-slug collision)
+                    # refusing to run at all -- days_failed stays 0 in that
+                    # case since no per-day sync was even attempted, so it
+                    # must be checked independently to surface as an error.
+                    completion_failed = completion_result.days_failed > 0 or completion_result.blocked
+
+            if should_save:
+                self._config_repo.save(config)
+
+            combined_message = (
+                result.message
+                if not completion_message
+                else f"{result.message} Completion: {completion_message}"
+            )
+            is_error = result.days_failed > 0 or completion_failed
+            return _SyncOutcome(combined_message, is_error)
 
     @staticmethod
     def _compute_sync_start(config: AddonConfig, today: date) -> date:

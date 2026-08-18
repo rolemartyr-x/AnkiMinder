@@ -7,7 +7,15 @@ from typing import Any
 
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 10
 DEFAULT_HISTORICAL_LOOKBACK_DAYS = 7
+# Soft ceiling on historical_lookback_days. Each day in the lookback window
+# costs one sequential HTTP write per enabled signal (numeric count and/or
+# binary completion), with no bulk-API path -- an unbounded value lets a
+# user accidentally trigger hundreds of sequential round-trips. Clamped
+# rather than rejected outright, since a large one-time backfill is a
+# legitimate (if slow) use case.
+MAX_HISTORICAL_LOOKBACK_DAYS = 365
 DEFAULT_LAST_REVIEW_COUNT_VALUE = -1
+DEFAULT_LAST_REVIEW_COMPLETION_VALUE = -1
 
 
 def _safe_int(value: Any, default: int) -> int:
@@ -53,11 +61,16 @@ class AddonConfig:
     beeminder_auth_token: str = ""
     default_goal_slug: str = ""
     review_count_goal_slug: str = ""
+    review_completion_goal_slug: str = ""
+    review_completion_sync_enabled: bool = False
     automation_enabled: bool = False
     automation_triggers: list[str] | None = None
     last_review_count_sync_date: str = ""
     last_review_count_value: int = DEFAULT_LAST_REVIEW_COUNT_VALUE
     last_review_count_datapoint_id: str = ""
+    last_review_completion_sync_date: str = ""
+    last_review_completion_value: int = DEFAULT_LAST_REVIEW_COMPLETION_VALUE
+    last_review_completion_datapoint_id: str = ""
     request_timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS
     historical_lookback_days: int = DEFAULT_HISTORICAL_LOOKBACK_DAYS
     dry_run: bool = True
@@ -86,12 +99,20 @@ class AddonConfig:
         )
         if lookback_days < 0:
             lookback_days = DEFAULT_HISTORICAL_LOOKBACK_DAYS
+        elif lookback_days > MAX_HISTORICAL_LOOKBACK_DAYS:
+            lookback_days = MAX_HISTORICAL_LOOKBACK_DAYS
 
         return cls(
             beeminder_username=str(data.get("beeminder_username", "")).strip(),
             beeminder_auth_token=str(data.get("beeminder_auth_token", "")).strip(),
             default_goal_slug=str(data.get("default_goal_slug", "")).strip(),
             review_count_goal_slug=str(data.get("review_count_goal_slug", "")).strip(),
+            review_completion_goal_slug=str(
+                data.get("review_completion_goal_slug", "")
+            ).strip(),
+            review_completion_sync_enabled=_safe_bool(
+                data.get("review_completion_sync_enabled", False), False
+            ),
             automation_enabled=_safe_bool(data.get("automation_enabled", False), False),
             automation_triggers=triggers or ["sync"],
             last_review_count_sync_date=str(data.get("last_review_count_sync_date", "")).strip(),
@@ -101,6 +122,16 @@ class AddonConfig:
             ),
             last_review_count_datapoint_id=str(
                 data.get("last_review_count_datapoint_id", "")
+            ).strip(),
+            last_review_completion_sync_date=str(
+                data.get("last_review_completion_sync_date", "")
+            ).strip(),
+            last_review_completion_value=_safe_int(
+                data.get("last_review_completion_value", DEFAULT_LAST_REVIEW_COMPLETION_VALUE),
+                DEFAULT_LAST_REVIEW_COMPLETION_VALUE,
+            ),
+            last_review_completion_datapoint_id=str(
+                data.get("last_review_completion_datapoint_id", "")
             ).strip(),
             request_timeout_seconds=timeout_seconds,
             historical_lookback_days=lookback_days,
