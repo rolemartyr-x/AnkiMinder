@@ -16,6 +16,10 @@ class SyncResult:
     posted: bool
     message: str
     datapoint: DatapointResponse | None = None
+    # True when a guard (e.g. a goal-slug collision) refused to run at all,
+    # as distinct from an ordinary non-post outcome (skip/no-op/dry-run).
+    # Mirrors ``DateRangeSyncResult.blocked``.
+    blocked: bool = False
 
 
 class SyncService:

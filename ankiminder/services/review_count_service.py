@@ -58,6 +58,63 @@ def request_id_for_completion_day(day: date_type, goal_slug: str) -> str:
     return f"{REQUEST_ID_PREFIX_COMPLETION}-{goal_slug}-{day.isoformat()}"
 
 
+def find_datapoint_for_day(
+    client: BeeminderClient,
+    request_timeout_seconds: int,
+    username: str,
+    goal_slug: str,
+    day: date_type,
+    requestid: str,
+    requestid_prefix: str,
+    prefetched_datapoints: list[DatapointResponse] | None = None,
+) -> DatapointResponse | None:
+    """Find the existing datapoint (if any) representing ``day``.
+
+    Matches on exact ``requestid`` first. As a fallback (for datapoints
+    created before deterministic requestids, or created manually by the
+    user directly on Beeminder), also matches on a bare ``daystamp``
+    match -- but *only* when the candidate's requestid is empty (the
+    legacy/manual case) or belongs to the same signal family as
+    ``requestid_prefix``. Without this restriction, a daystamp match
+    would happily pair one signal's sync with another signal's datapoint
+    whenever both target the same goal slug on the same day, silently
+    overwriting one signal's data with the other's (see the goal-slug-
+    conflict guards on each sync service, which are the primary defense;
+    this keeps the fallback matcher itself safe when multiple signal
+    types share this helper).
+
+    Module-level (rather than a ``ReviewCountSyncService`` method) so any
+    sync service -- not just the numeric/completion ones -- can reuse this
+    matching logic without duplicating it.
+    """
+    if prefetched_datapoints is not None:
+        recent = prefetched_datapoints
+    else:
+        recent = client.list_datapoints(
+            username=username,
+            goal_slug=goal_slug,
+            count=FALLBACK_DATAPOINT_LOOKUP_COUNT,
+            timeout_seconds=request_timeout_seconds,
+        )
+    target_daystamp = daystamp(day)
+
+    def _is_match(item: DatapointResponse) -> bool:
+        if item.requestid == requestid:
+            return True
+        if item.daystamp != target_daystamp:
+            return False
+        # Bare daystamp fallback: only accept a candidate with no
+        # requestid at all (legacy/manually-created datapoint) or one
+        # whose requestid belongs to this same signal family.
+        return not item.requestid or item.requestid.startswith(requestid_prefix)
+
+    matches = [item for item in recent if _is_match(item)]
+    if not matches:
+        return None
+    matches.sort(key=lambda item: item.timestamp, reverse=True)
+    return matches[0]
+
+
 def dates_between(start: date_type, end: date_type) -> list[date_type]:
     """Return every date from ``start`` to ``end`` inclusive.
 
@@ -541,45 +598,20 @@ class ReviewCountSyncService:
         requestid_prefix: str,
         prefetched_datapoints: list[DatapointResponse] | None = None,
     ) -> DatapointResponse | None:
-        """Find the existing datapoint (if any) representing ``day``.
+        """Thin wrapper around the module-level ``find_datapoint_for_day``.
 
-        Matches on exact ``requestid`` first. As a fallback (for datapoints
-        created before deterministic requestids, or created manually by the
-        user directly on Beeminder), also matches on a bare ``daystamp``
-        match -- but *only* when the candidate's requestid is empty (the
-        legacy/manual case) or belongs to the same signal family as
-        ``requestid_prefix``. Without this restriction, a daystamp match
-        would happily pair the numeric-count sync with a completion
-        datapoint (or vice versa) whenever both signals target the same
-        goal slug on the same day, silently overwriting one signal's data
-        with the other's (see the goal-slug-conflict guards in
-        ``sync_day_completion``/``sync_completion_date_range``, which are
-        the primary defense; this keeps the fallback matcher itself safe in
-        case a future third signal type reuses this helper).
+        Kept as a method (rather than inlining the call at each of this
+        class's three call sites) so existing tests that call
+        ``service._find_datapoint_for_day(...)`` directly keep working
+        unchanged.
         """
-        if prefetched_datapoints is not None:
-            recent = prefetched_datapoints
-        else:
-            recent = self.client.list_datapoints(
-                username=username,
-                goal_slug=goal_slug,
-                count=FALLBACK_DATAPOINT_LOOKUP_COUNT,
-                timeout_seconds=self.config.request_timeout_seconds,
-            )
-        target_daystamp = daystamp(day)
-
-        def _is_match(item: DatapointResponse) -> bool:
-            if item.requestid == requestid:
-                return True
-            if item.daystamp != target_daystamp:
-                return False
-            # Bare daystamp fallback: only accept a candidate with no
-            # requestid at all (legacy/manually-created datapoint) or one
-            # whose requestid belongs to this same signal family.
-            return not item.requestid or item.requestid.startswith(requestid_prefix)
-
-        matches = [item for item in recent if _is_match(item)]
-        if not matches:
-            return None
-        matches.sort(key=lambda item: item.timestamp, reverse=True)
-        return matches[0]
+        return find_datapoint_for_day(
+            client=self.client,
+            request_timeout_seconds=self.config.request_timeout_seconds,
+            username=username,
+            goal_slug=goal_slug,
+            day=day,
+            requestid=requestid,
+            requestid_prefix=requestid_prefix,
+            prefetched_datapoints=prefetched_datapoints,
+        )
