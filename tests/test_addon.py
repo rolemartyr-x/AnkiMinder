@@ -15,6 +15,7 @@ import ankiminder.addon as addon_module
 from ankiminder.addon import AddonApp
 from ankiminder.exceptions import BeeminderError
 from ankiminder.mocks.mock_client import MockBeeminderClient
+from ankiminder.services.due_cards_cleared_service import DueCardsClearedSyncService
 from ankiminder.services.review_count_service import ReviewCountSyncService
 
 
@@ -41,6 +42,29 @@ class FakeDb:
 
     def scalar(self, _query: str, *_params: int) -> int:
         return self.result
+
+
+class FakeSched:
+    """Minimal stand-in for Anki's scheduler, matching AnkiDueCardCountSource."""
+
+    def __init__(self, finished: bool = True) -> None:
+        self._finished = finished
+
+    def is_finished(self) -> bool:
+        return self._finished
+
+    def deck_due_tree(self, did=None):
+        return SimpleNamespace(children=[])
+
+
+class FakeDecks:
+    """Minimal stand-in for Anki's deck manager, matching AnkiDueCardCountSource."""
+
+    def __init__(self, name_to_id: dict | None = None) -> None:
+        self._map = name_to_id or {}
+
+    def id_for_name(self, name: str):
+        return self._map.get(name)
 
 
 class FakeTaskManager:
@@ -83,8 +107,21 @@ def make_config_dict(**overrides) -> dict:
     return base
 
 
-def make_main_window(config_dict: dict, db_result: int = 3, has_collection: bool = True):
-    col = SimpleNamespace(db=FakeDb(result=db_result)) if has_collection else None
+def make_main_window(
+    config_dict: dict,
+    db_result: int = 3,
+    has_collection: bool = True,
+    due_cards_finished: bool = True,
+):
+    col = (
+        SimpleNamespace(
+            db=FakeDb(result=db_result),
+            sched=FakeSched(finished=due_cards_finished),
+            decks=FakeDecks(),
+        )
+        if has_collection
+        else None
+    )
     return SimpleNamespace(addonManager=FakeAddonManager(config_dict), col=col)
 
 
@@ -419,6 +456,119 @@ class TestPerformReviewSyncCompletion(unittest.TestCase):
         self.assertEqual(saved["last_review_count_sync_date"], date.today().isoformat())
         # The completion phase never completed, so its metadata is untouched.
         self.assertEqual(saved["last_review_completion_sync_date"], "")
+
+
+class TestPerformReviewSyncDueCleared(unittest.TestCase):
+    def test_disabled_by_default_only_other_syncs_run(self) -> None:
+        fake_mw = make_main_window(make_config_dict(dry_run=True))
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        with mock.patch.object(DueCardsClearedSyncService, "sync_today") as fake_due_sync:
+            outcome = app._perform_review_sync()
+
+        fake_due_sync.assert_not_called()
+        self.assertFalse(outcome.is_error)
+        self.assertNotIn("Due cleared:", outcome.message)
+
+    def test_enabled_but_goal_slug_empty_skips(self) -> None:
+        config_dict = make_config_dict(
+            dry_run=True,
+            due_cards_cleared_sync_enabled=True,
+            due_cards_cleared_goal_slug="",
+        )
+        fake_mw = make_main_window(config_dict)
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        with mock.patch.object(DueCardsClearedSyncService, "sync_today") as fake_due_sync:
+            outcome = app._perform_review_sync()
+
+        fake_due_sync.assert_not_called()
+        self.assertFalse(outcome.is_error)
+        self.assertNotIn("Due cleared:", outcome.message)
+
+    def test_enabled_with_goal_slug_runs_once_and_saves_metadata(self) -> None:
+        """Runs for real (no mocking of the service) against a "nothing due"
+        scheduler fake, so this exercises the actual sched.is_finished()
+        path end to end alongside the numeric sync.
+        """
+        config_dict = make_config_dict(
+            dry_run=False,
+            due_cards_cleared_sync_enabled=True,
+            due_cards_cleared_goal_slug="anki-due-cleared",
+        )
+        fake_mw = make_main_window(config_dict, db_result=1, due_cards_finished=True)
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        mock_client = MockBeeminderClient()
+
+        def fake_from_config(config, review_count_source):
+            return ReviewCountSyncService(
+                config=config, client=mock_client, review_count_source=review_count_source
+            )
+
+        def fake_due_from_config(config, due_card_count_source):
+            return DueCardsClearedSyncService(
+                config=config, client=mock_client, due_card_count_source=due_card_count_source
+            )
+
+        with mock.patch.object(
+            ReviewCountSyncService, "from_config", side_effect=fake_from_config
+        ), mock.patch.object(
+            DueCardsClearedSyncService, "from_config", side_effect=fake_due_from_config
+        ):
+            outcome = app._perform_review_sync()
+
+        self.assertFalse(outcome.is_error)
+        self.assertIn("Due cleared:", outcome.message)
+
+        goal_slugs_called = {call[1] for call in mock_client.calls}
+        self.assertIn("anki-reviews", goal_slugs_called)
+        self.assertIn("anki-due-cleared", goal_slugs_called)
+
+        saved = fake_mw.addonManager.saved
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["last_due_cards_cleared_sync_date"], date.today().isoformat())
+        self.assertEqual(saved["last_due_cards_cleared_value"], 1)
+        self.assertIn("last_due_cards_cleared_datapoint_id", saved)
+
+    def test_beeminder_error_does_not_discard_numeric_config_save(self) -> None:
+        config_dict = make_config_dict(
+            dry_run=True,
+            due_cards_cleared_sync_enabled=True,
+            due_cards_cleared_goal_slug="anki-due-cleared",
+        )
+        fake_mw = make_main_window(config_dict, db_result=1)
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        with mock.patch.object(
+            DueCardsClearedSyncService,
+            "sync_today",
+            side_effect=BeeminderError("bad due-cleared goal slug"),
+        ):
+            outcome = app._perform_review_sync()
+
+        self.assertTrue(outcome.is_error)
+        self.assertIn("due cards cleared sync failed", outcome.message)
+
+        saved = fake_mw.addonManager.saved
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["last_review_count_sync_date"], date.today().isoformat())
+        self.assertEqual(saved["last_due_cards_cleared_sync_date"], "")
+
+    def test_goal_slug_collision_surfaces_as_error(self) -> None:
+        config_dict = make_config_dict(
+            dry_run=True,
+            review_count_goal_slug="shared",
+            due_cards_cleared_sync_enabled=True,
+            due_cards_cleared_goal_slug="shared",
+        )
+        fake_mw = make_main_window(config_dict, db_result=1)
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        outcome = app._perform_review_sync()
+
+        self.assertTrue(outcome.is_error)
+        self.assertIn("must differ", outcome.message)
 
 
 class TestShouldSaveGating(unittest.TestCase):

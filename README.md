@@ -1,8 +1,8 @@
 # AnkiMinder Add-on
 
 Sync your **daily Anki review count** to a Beeminder **do-more** goal, with
-an optional second, binary **"did I review today"** signal to a separate
-goal.
+two optional binary signals to separate goals: **"did I review at all
+today"** and **"did I clear all of today's due cards"**.
 
 This add-on supports:
 - Manual sync from the Anki Tools menu.
@@ -16,6 +16,10 @@ This add-on supports:
   posts a `0`/`1` "did I review today" datapoint to a *second* Beeminder
   goal every day in the lookback window, including zero-review days (see
   "Binary Completion Sync" below).
+- An optional, independent binary due-cards-cleared signal
+  (`due_cards_cleared_sync_enabled`): posts a `0`/`1` "did I clear all of
+  today's due cards" datapoint to a *third* Beeminder goal, computed live
+  from Anki's scheduler (see "Due Cards Cleared Sync" below).
 
 ---
 
@@ -78,6 +82,44 @@ For each sync attempt, once completion sync is enabled:
 
 ---
 
+## Due Cards Cleared Sync (Optional)
+
+A third, independent signal: a binary `0`/`1` "did I clear all of today's
+due cards" datapoint, useful for a Beeminder goal that tracks whether you
+actually finished your queue for the day, rather than whether you did any
+reviews at all or how many.
+
+To enable it:
+
+1. Create a **third** Beeminder do-more goal (separate from both the goal
+   used for `review_count_goal_slug`/`default_goal_slug` *and* the one used
+   for `review_completion_goal_slug`).
+2. In `config.json`, set:
+   - `due_cards_cleared_goal_slug`: the third goal's slug.
+   - `due_cards_cleared_sync_enabled: true`.
+   - Optionally, `due_cards_cleared_deck_names`: a list of deck names to
+     restrict the check to (default: all decks).
+
+**The due-cards-cleared goal slug must differ from both other goal slugs.**
+All three syncs upsert datapoints, and a colliding slug risks one signal's
+write overwriting another's data. The add-on refuses to run this sync (no
+partial writes) if it collides with either other slug.
+
+Key differences from the other two signals:
+- **Live, not historical.** This reads Anki's scheduler (what's due *right
+  now*), not the revlog, so it can only ever report on "today" -- there is
+  no way to retroactively check a past day. `historical_lookback_days`
+  does not apply to it.
+- **Sticky, not flip-able.** Once today's datapoint reads `1` (all clear),
+  a later sync the same day that finds new due cards will NOT downgrade it
+  back to `0`. Clearing your queue once counts for the day, even if
+  learning-step cards return or you add new cards afterward.
+- **Deck-name filtering.** An unresolvable/misspelled deck name in
+  `due_cards_cleared_deck_names` silently contributes zero due cards
+  rather than erroring.
+
+---
+
 ## Install in Anki (Recommended: `.ankiaddon`)
 
 1. Download the release file named like `ankiminderV1.0.3.ankiaddon`.
@@ -132,6 +174,9 @@ Config options (all current keys):
 - `review_count_goal_slug` (string): primary goal slug for review totals.
 - `review_completion_goal_slug` (string): goal slug for the optional binary "did I review today" (0/1) signal. Must differ from `review_count_goal_slug`/`default_goal_slug` -- see "Binary Completion Sync" above. Never falls back to another slug; leave blank to keep completion sync disabled.
 - `review_completion_sync_enabled` (bool): enable the binary completion sync. Only takes effect when `review_completion_goal_slug` is also set and distinct from the numeric goal slug.
+- `due_cards_cleared_goal_slug` (string): goal slug for the optional binary "all due cards cleared today" (0/1) signal. Must differ from both `review_count_goal_slug`/`default_goal_slug` *and* `review_completion_goal_slug` -- see "Due Cards Cleared Sync" above. Never falls back to another slug; leave blank to keep this sync disabled.
+- `due_cards_cleared_sync_enabled` (bool): enable the due-cards-cleared sync. Only takes effect when `due_cards_cleared_goal_slug` is also set and distinct from the other two goal slugs.
+- `due_cards_cleared_deck_names` (list[string]): decks to restrict the due-cards-cleared check to. Empty (default) means all decks.
 - `automation_enabled` (bool): enable automatic sync.
 - `automation_triggers` (list[string]): automatic triggers; supported values: `"sync"`, `"startup"`.
 - `last_review_count_sync_date` (string): internal metadata (`YYYY-MM-DD`), auto-managed.
@@ -140,6 +185,9 @@ Config options (all current keys):
 - `last_review_completion_sync_date` (string): internal metadata (`YYYY-MM-DD`), auto-managed.
 - `last_review_completion_value` (int): internal metadata, auto-managed.
 - `last_review_completion_datapoint_id` (string): internal metadata, auto-managed.
+- `last_due_cards_cleared_sync_date` (string): internal metadata (`YYYY-MM-DD`), auto-managed.
+- `last_due_cards_cleared_value` (int): internal metadata, auto-managed.
+- `last_due_cards_cleared_datapoint_id` (string): internal metadata, auto-managed.
 - `request_timeout_seconds` (int): Beeminder API timeout.
 - `historical_lookback_days` (int): number of days to re-sync each run (default `7`, clamped to a maximum of 365). A large value combined with completion sync roughly doubles the number of Beeminder API round-trips for that run -- see `config.md`.
 - `dry_run` (bool): if true, no write is sent to Beeminder.
@@ -156,6 +204,9 @@ Example:
   "review_count_goal_slug": "anki-reviews",
   "review_completion_goal_slug": "anki-review-streak",
   "review_completion_sync_enabled": true,
+  "due_cards_cleared_goal_slug": "anki-due-cleared",
+  "due_cards_cleared_sync_enabled": true,
+  "due_cards_cleared_deck_names": [],
   "automation_enabled": true,
   "automation_triggers": ["sync", "startup"],
   "request_timeout_seconds": 10,
@@ -178,6 +229,7 @@ Example:
 8. To test completion sync: create a second goal, set `review_completion_goal_slug` (distinct from `review_count_goal_slug`) and `review_completion_sync_enabled: true`, then sync again.
 9. Confirm completion sync posts a `0` datapoint on a zero-review day (opposite of the numeric sync's skip behavior) and a `1` on a day with reviews.
 10. Confirm setting `review_completion_goal_slug` to the same value as `review_count_goal_slug` makes the add-on refuse to sync completion data (error message, no datapoint written or overwritten on either goal).
+11. To test due-cards-cleared sync: create a third goal, set `due_cards_cleared_goal_slug` (distinct from the other two) and `due_cards_cleared_sync_enabled: true`. Sync while cards are still due (expect `0`), then use `Study Now` until none remain and sync again (expect `1`). Do more reviews later the same day (making cards due again) and sync once more -- confirm the value stays `1` (sticky), not `0`.
 
 ---
 

@@ -10,12 +10,14 @@ from typing import Any, Callable
 from .config import AddonConfig, ConfigRepository
 from .exceptions import BeeminderError
 from .services.automation_service import AutomationService, TRIGGER_STARTUP, TRIGGER_SYNC
+from .services.due_cards_cleared_service import AnkiDueCardCountSource, DueCardsClearedSyncService
 from .services.review_count_service import (
     AnkiReviewCountSource,
     DateRangeSyncResult,
     ReviewCountSyncService,
     dates_between,
 )
+from .services.sync_service import SyncResult
 
 try:
     from aqt import gui_hooks, mw
@@ -235,6 +237,41 @@ class AddonApp:
                     # must be checked independently to surface as an error.
                     completion_failed = completion_result.days_failed > 0 or completion_result.blocked
 
+            due_cleared_message = ""
+            due_cleared_failed = False
+            if config.due_cards_cleared_sync_enabled and config.due_cards_cleared_goal_slug:
+                # Guarded independently of the other two phases, same
+                # rationale as the completion phase above: a due-cards-
+                # cleared failure must not discard the numeric/completion
+                # phases' already-earned config saves, and vice versa. This
+                # signal is a live scheduler snapshot (not revlog-based), so
+                # it syncs only "today" -- no date-range loop.
+                due_result: SyncResult | None
+                try:
+                    due_source = AnkiDueCardCountSource(
+                        sched=self._mw.col.sched, decks=self._mw.col.decks
+                    )
+                    due_sync = DueCardsClearedSyncService.from_config(
+                        config=config, due_card_count_source=due_source
+                    )
+                    due_result = due_sync.sync_today(
+                        day=today, goal_slug=config.due_cards_cleared_goal_slug
+                    )
+                except BeeminderError as error:
+                    due_result = None
+                    due_cleared_message = f"due cards cleared sync failed: {error}"
+                    due_cleared_failed = True
+
+                if due_result is not None:
+                    if due_result.datapoint is not None:
+                        config.last_due_cards_cleared_value = int(due_result.datapoint.value)
+                        config.last_due_cards_cleared_datapoint_id = due_result.datapoint.id
+                    if due_result.posted or due_result.datapoint is not None:
+                        config.last_due_cards_cleared_sync_date = today.isoformat()
+                        should_save = True
+                    due_cleared_message = due_result.message
+                    due_cleared_failed = due_result.blocked
+
             if should_save:
                 self._config_repo.save(config)
 
@@ -243,7 +280,9 @@ class AddonApp:
                 if not completion_message
                 else f"{result.message} Completion: {completion_message}"
             )
-            is_error = result.days_failed > 0 or completion_failed
+            if due_cleared_message:
+                combined_message = f"{combined_message} Due cleared: {due_cleared_message}"
+            is_error = result.days_failed > 0 or completion_failed or due_cleared_failed
             return _SyncOutcome(combined_message, is_error)
 
     @staticmethod
