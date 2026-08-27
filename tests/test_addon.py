@@ -45,16 +45,21 @@ class FakeDb:
 
 
 class FakeSched:
-    """Minimal stand-in for Anki's scheduler, matching AnkiDueCardCountSource."""
+    """Minimal stand-in for Anki's scheduler, matching AnkiDueCardCountSource.
 
-    def __init__(self, finished: bool = True) -> None:
-        self._finished = finished
+    Deliberately has no ``is_finished`` method -- the modern Rust-backed
+    scheduler exposed as ``col.sched`` doesn't have one either (confirmed by
+    a real AttributeError from a live install). ``deck_due_tree`` takes no
+    arguments here (real Anki's parameter is ``top_deck_id``, not ``did`` --
+    confirmed by a second live error after the first fix), so any call
+    passing an argument would raise a TypeError, matching production.
+    """
 
-    def is_finished(self) -> bool:
-        return self._finished
+    def __init__(self, tree=None) -> None:
+        self._tree = tree if tree is not None else SimpleNamespace(children=[])
 
-    def deck_due_tree(self, did=None):
-        return SimpleNamespace(children=[])
+    def deck_due_tree(self):
+        return self._tree
 
 
 class FakeDecks:
@@ -113,10 +118,19 @@ def make_main_window(
     has_collection: bool = True,
     due_cards_finished: bool = True,
 ):
+    due_tree = (
+        SimpleNamespace(children=[])
+        if due_cards_finished
+        else SimpleNamespace(
+            children=[
+                SimpleNamespace(deck_id=1, new_count=1, learn_count=0, review_count=0, children=[])
+            ]
+        )
+    )
     col = (
         SimpleNamespace(
             db=FakeDb(result=db_result),
-            sched=FakeSched(finished=due_cards_finished),
+            sched=FakeSched(tree=due_tree),
             decks=FakeDecks(),
         )
         if has_collection
@@ -488,7 +502,7 @@ class TestPerformReviewSyncDueCleared(unittest.TestCase):
 
     def test_enabled_with_goal_slug_runs_once_and_saves_metadata(self) -> None:
         """Runs for real (no mocking of the service) against a "nothing due"
-        scheduler fake, so this exercises the actual sched.is_finished()
+        scheduler fake, so this exercises the actual deck_due_tree summation
         path end to end alongside the numeric sync.
         """
         config_dict = make_config_dict(
