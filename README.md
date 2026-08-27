@@ -120,9 +120,21 @@ Key differences from the other two signals:
 
 ---
 
-## Install in Anki (Recommended: `.ankiaddon`)
+## Install in Anki (Recommended: AnkiWeb)
 
-1. Download the release file named like `ankiminderV1.0.3.ankiaddon`.
+1. Visit the [AnkiMinder AnkiWeb listing](https://ankiweb.net/shared/info/221391424).
+2. In Anki, go to `Tools -> Add-ons -> Get Add-ons...` and paste the code `221391424` (or use AnkiWeb's "Download" button on the page above).
+3. Restart Anki.
+
+This is the easiest path for most users -- Anki checks AnkiWeb for updates automatically, so you won't need to manually re-download new releases.
+
+---
+
+## Install via `.ankiaddon` File (Alternative / Offline)
+
+Use this if you'd rather install a specific release manually, or don't want AnkiWeb's auto-update checks.
+
+1. Download the release file (e.g. `ankiminderV1.1.0.ankiaddon`) from this repo's [GitHub Releases](https://github.com/rolemartyr-x/AnkiMinder/releases).
 2. In Anki, go to:
    - `Tools -> Add-ons -> Install from file...`
 3. Select the `.ankiaddon` file.
@@ -135,7 +147,7 @@ Key differences from the other two signals:
 Build a distributable `.ankiaddon` file:
 
 ```bash
-python scripts/build_ankiaddon.py --version 1.0.3
+python scripts/build_ankiaddon.py --version 1.1.0
 ```
 
 The output file name is always enforced as:
@@ -144,7 +156,7 @@ The output file name is always enforced as:
 Optional custom path (same enforced file name):
 
 ```bash
-python scripts/build_ankiaddon.py --version 1.0.3 --output dist/ankiminderV1.0.3.ankiaddon
+python scripts/build_ankiaddon.py --version 1.1.0 --output dist/ankiminderV1.1.0.ankiaddon
 ```
 
 ---
