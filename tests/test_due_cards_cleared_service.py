@@ -29,14 +29,19 @@ class FakeDeckTreeNode:
 
 class FakeSched:
     """Mirrors the real ``col.sched``'s surface actually used by
-    AnkiDueCardCountSource -- deliberately has no ``is_finished`` method,
-    since the modern Rust-backed scheduler doesn't expose one either.
+    AnkiDueCardCountSource -- deliberately has no ``is_finished`` method
+    (the modern Rust-backed scheduler doesn't expose one either), and
+    ``deck_due_tree`` takes no positional/keyword args from our code (real
+    Anki's parameter is ``top_deck_id``, not ``did`` -- see
+    ``deck_due_tree_calls`` below for regression coverage of that).
     """
 
     def __init__(self, tree=None):
         self._tree = tree if tree is not None else FakeDeckTreeNode()
+        self.deck_due_tree_calls = 0
 
-    def deck_due_tree(self, did=None):
+    def deck_due_tree(self):
+        self.deck_due_tree_calls += 1
         return self._tree
 
 
@@ -62,6 +67,18 @@ class TestAnkiDueCardCountSource(unittest.TestCase):
             sched=FakeSched(tree=FakeDeckTreeNode(children=[])), decks=FakeDecks({})
         )
         self.assertEqual(source.due_cards_remaining(), 0)
+
+    def test_deck_due_tree_called_with_no_arguments(self) -> None:
+        """Regression coverage: real Anki's parameter is ``top_deck_id``,
+        not ``did`` -- a previous version of this code passed ``did=None``
+        and crashed with a live TypeError. FakeSched's ``deck_due_tree``
+        takes zero parameters, so any reintroduced argument (of any name)
+        would raise here immediately, not just in production.
+        """
+        sched = FakeSched(tree=FakeDeckTreeNode(children=[]))
+        source = AnkiDueCardCountSource(sched=sched, decks=FakeDecks({}))
+        source.due_cards_remaining()
+        self.assertEqual(sched.deck_due_tree_calls, 1)
 
     def test_populated_tree_with_no_filter_sums_tree(self) -> None:
         tree = FakeDeckTreeNode(

@@ -84,7 +84,11 @@ class AnkiDueCardCountSource:
         return frozenset(ids)
 
     def _sum_due_tree(self, included_ids: frozenset[int] | None) -> int:
-        root = self.sched.deck_due_tree(did=None)
+        # Anki's real parameter name is ``top_deck_id`` (verified against
+        # Anki's source, confirmed by a live AttributeError-turned-TypeError
+        # on the previous ``did=`` guess) -- omitted entirely here since we
+        # always want the whole tree and ``None`` is its default anyway.
+        root = self.sched.deck_due_tree()
         if included_ids is None:
             return sum(_node_total(child) for child in root.children)
         return sum(

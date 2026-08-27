@@ -49,14 +49,16 @@ class FakeSched:
 
     Deliberately has no ``is_finished`` method -- the modern Rust-backed
     scheduler exposed as ``col.sched`` doesn't have one either (confirmed by
-    a real AttributeError from a live install), so AnkiDueCardCountSource
-    only ever calls ``deck_due_tree``.
+    a real AttributeError from a live install). ``deck_due_tree`` takes no
+    arguments here (real Anki's parameter is ``top_deck_id``, not ``did`` --
+    confirmed by a second live error after the first fix), so any call
+    passing an argument would raise a TypeError, matching production.
     """
 
     def __init__(self, tree=None) -> None:
         self._tree = tree if tree is not None else SimpleNamespace(children=[])
 
-    def deck_due_tree(self, did=None):
+    def deck_due_tree(self):
         return self._tree
 
 
