@@ -56,13 +56,15 @@ class AnkiDueCardCountSource:
 
     def due_cards_remaining(self, included_deck_names: tuple[str, ...] = ()) -> int:
         if not included_deck_names:
-            # Anki's own authoritative "nothing left to study" check for the
-            # whole collection -- avoids relying on deck_due_tree's node-sum
-            # semantics (cumulative vs. exclusive per node) for the common,
-            # unfiltered case.
-            if bool(self.sched.is_finished()):
-                return 0
-            return max(self._sum_due_tree(None), 1)
+            # ``Scheduler.is_finished()`` only exists on the legacy V1/V2
+            # Python schedulers, not the modern Rust-backed one exposed as
+            # ``col.sched`` in current Anki -- confirmed by a real
+            # AttributeError from a live install. ``deck_due_tree`` is the
+            # stable, version-independent API (also used by Anki's own deck
+            # browser to render its totals), so it's used for both the
+            # unfiltered and filtered cases rather than special-casing the
+            # unfiltered one.
+            return self._sum_due_tree(None)
 
         included_ids = self._resolve_deck_ids(included_deck_names)
         if not included_ids:

@@ -28,12 +28,13 @@ class FakeDeckTreeNode:
 
 
 class FakeSched:
-    def __init__(self, finished, tree=None):
-        self._finished = finished
-        self._tree = tree if tree is not None else FakeDeckTreeNode()
+    """Mirrors the real ``col.sched``'s surface actually used by
+    AnkiDueCardCountSource -- deliberately has no ``is_finished`` method,
+    since the modern Rust-backed scheduler doesn't expose one either.
+    """
 
-    def is_finished(self):
-        return self._finished
+    def __init__(self, tree=None):
+        self._tree = tree if tree is not None else FakeDeckTreeNode()
 
     def deck_due_tree(self, did=None):
         return self._tree
@@ -56,26 +57,21 @@ class FakeDueCardCountSource:
 
 
 class TestAnkiDueCardCountSource(unittest.TestCase):
-    def test_finished_with_no_filter_returns_zero(self) -> None:
-        source = AnkiDueCardCountSource(sched=FakeSched(finished=True), decks=FakeDecks({}))
+    def test_empty_tree_with_no_filter_returns_zero(self) -> None:
+        source = AnkiDueCardCountSource(
+            sched=FakeSched(tree=FakeDeckTreeNode(children=[])), decks=FakeDecks({})
+        )
         self.assertEqual(source.due_cards_remaining(), 0)
 
-    def test_not_finished_with_no_filter_sums_tree(self) -> None:
+    def test_populated_tree_with_no_filter_sums_tree(self) -> None:
         tree = FakeDeckTreeNode(
             children=[
                 FakeDeckTreeNode(deck_id=1, new_count=2, learn_count=1, review_count=3),
                 FakeDeckTreeNode(deck_id=2, new_count=0, learn_count=0, review_count=1),
             ]
         )
-        source = AnkiDueCardCountSource(sched=FakeSched(finished=False, tree=tree), decks=FakeDecks({}))
+        source = AnkiDueCardCountSource(sched=FakeSched(tree=tree), decks=FakeDecks({}))
         self.assertEqual(source.due_cards_remaining(), 7)
-
-    def test_empty_collection_with_no_filter_is_vacuously_clear(self) -> None:
-        source = AnkiDueCardCountSource(
-            sched=FakeSched(finished=True, tree=FakeDeckTreeNode(children=[])),
-            decks=FakeDecks({}),
-        )
-        self.assertEqual(source.due_cards_remaining(), 0)
 
     def test_deck_filter_matches_subtree_node(self) -> None:
         tree = FakeDeckTreeNode(
@@ -85,7 +81,7 @@ class TestAnkiDueCardCountSource(unittest.TestCase):
             ]
         )
         source = AnkiDueCardCountSource(
-            sched=FakeSched(finished=False, tree=tree),
+            sched=FakeSched(tree=tree),
             decks=FakeDecks({"Japanese": 2}),
         )
         self.assertEqual(source.due_cards_remaining(("Japanese",)), 5)
@@ -93,10 +89,17 @@ class TestAnkiDueCardCountSource(unittest.TestCase):
     def test_unresolvable_deck_name_contributes_zero_without_erroring(self) -> None:
         tree = FakeDeckTreeNode(children=[FakeDeckTreeNode(deck_id=1, new_count=3)])
         source = AnkiDueCardCountSource(
-            sched=FakeSched(finished=False, tree=tree),
+            sched=FakeSched(tree=tree),
             decks=FakeDecks({}),
         )
         self.assertEqual(source.due_cards_remaining(("Typo'd Deck",)), 0)
+
+    def test_real_scheduler_object_has_no_is_finished_attribute(self) -> None:
+        """Regression coverage: FakeSched deliberately omits ``is_finished``,
+        matching the real modern Anki scheduler. Any reintroduced dependency
+        on that method would break this fake (and real Anki) immediately.
+        """
+        self.assertFalse(hasattr(FakeSched(), "is_finished"))
 
 
 class TestSyncTodayDueCleared(unittest.TestCase):
