@@ -7,11 +7,16 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from ..exceptions import BeeminderRequestError
 
 DEFAULT_TIMEOUT_SECONDS = 10
+
+# Beeminder's user/datapoint JSON payloads are a few KB at most; this is a
+# generous ceiling to guard against an unbounded/oversized response body
+# (e.g. a misbehaving endpoint) being buffered entirely into memory.
+MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 
 
 @dataclass
@@ -37,6 +42,38 @@ class Transport(Protocol):
         ...
 
 
+class _HttpsOnlyRedirectHandler(HTTPRedirectHandler):
+    """Refuses to follow a redirect whose target isn't HTTPS.
+
+    Stdlib ``urlopen`` otherwise follows a redirect regardless of scheme,
+    which would silently downgrade an HTTPS request (and the auth token
+    riding along with it) to plaintext HTTP if a redirect to an ``http://``
+    URL were ever encountered.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: N802
+        if not newurl.lower().startswith("https://"):
+            raise BeeminderRequestError(
+                f"Refusing to follow insecure redirect to non-HTTPS URL: {newurl}"
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+# A single opener reused across requests; `build_opener` swaps out the
+# default `HTTPRedirectHandler` for the HTTPS-only variant above (it's a
+# subclass, so `build_opener` skips adding the stock one).
+_opener = build_opener(_HttpsOnlyRedirectHandler)
+
+
+def _read_capped(fp: Any, limit: int = MAX_RESPONSE_BYTES) -> bytes:
+    """Read at most ``limit`` bytes from ``fp``, raising if more remain."""
+
+    data = fp.read(limit + 1)
+    if len(data) > limit:
+        raise BeeminderRequestError("Beeminder response exceeded the maximum allowed size.")
+    return data
+
+
 class UrllibTransport:
     """Default transport using urllib from Python stdlib."""
 
@@ -57,15 +94,15 @@ class UrllibTransport:
             request.add_header("Content-Type", "application/x-www-form-urlencoded")
 
         try:
-            with urlopen(request, timeout=timeout_seconds) as response:
-                body = response.read().decode("utf-8")
+            with _opener.open(request, timeout=timeout_seconds) as response:
+                body = _read_capped(response).decode("utf-8")
                 return HttpResponse(
                     status_code=int(response.getcode()),
                     body=body,
                     headers={k: v for k, v in response.headers.items()},
                 )
         except HTTPError as error:
-            body = error.read().decode("utf-8")
+            body = _read_capped(error).decode("utf-8")
             return HttpResponse(
                 status_code=int(error.code),
                 body=body,
