@@ -41,6 +41,17 @@ class TestModels(unittest.TestCase):
         self.assertEqual(parsed.value, 5.0)
         self.assertEqual(parsed.daystamp, "20260202")
 
+    def test_datapoint_response_null_requestid_normalizes_to_empty_string(self) -> None:
+        """A JSON `null` requestid must not become the literal string "None"."""
+        raw = {"id": "123", "value": 1, "timestamp": 1738790400, "requestid": None}
+        parsed = DatapointResponse.from_json(raw)
+        self.assertEqual(parsed.requestid, "")
+
+    def test_datapoint_response_missing_requestid_also_normalizes_to_empty_string(self) -> None:
+        raw = {"id": "123", "value": 1, "timestamp": 1738790400}
+        parsed = DatapointResponse.from_json(raw)
+        self.assertEqual(parsed.requestid, "")
+
 
 if __name__ == "__main__":
     unittest.main()
