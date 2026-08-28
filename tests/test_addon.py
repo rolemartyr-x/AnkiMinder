@@ -404,6 +404,43 @@ class TestPerformReviewSyncCompletion(unittest.TestCase):
 
         self.assertTrue(outcome.is_error)
 
+    def test_numeric_failure_surfaces_is_error_even_if_completion_succeeds(self) -> None:
+        """Mirror of ``test_completion_failure_surfaces_is_error_even_if_numeric_succeeds``,
+        exercising the ``is_error`` OR-combination's other direction:
+        ``result.days_failed > 0`` must surface as an error even when the
+        completion phase succeeds. Completion runs for real in dry-run mode
+        (trivially "succeeds") while the numeric result is mocked to fail,
+        isolating which side of the OR is under test.
+        """
+        config_dict = make_config_dict(
+            dry_run=True,
+            review_completion_sync_enabled=True,
+            review_completion_goal_slug="anki-completion",
+        )
+        fake_mw = make_main_window(config_dict, db_result=1)
+        app = AddonApp("ankiminder", main_window=fake_mw, task_manager=FakeTaskManager())
+
+        from ankiminder.services.review_count_service import DateRangeSyncResult
+
+        failing_numeric_result = DateRangeSyncResult(
+            days_synced=0,
+            days_skipped=0,
+            days_failed=1,
+            total_reviews=0,
+            last_successful_date=None,
+            last_successful_datapoint=None,
+            message="1 failed.",
+        )
+
+        with mock.patch.object(
+            ReviewCountSyncService,
+            "sync_date_range",
+            return_value=failing_numeric_result,
+        ):
+            outcome = app._perform_review_sync()
+
+        self.assertTrue(outcome.is_error)
+
     def test_completion_goal_slug_collision_surfaces_as_error(self) -> None:
         """End-to-end regression coverage for the round-2 finding: a real
         goal-slug-collision refusal (`review_completion_goal_slug` equal to
