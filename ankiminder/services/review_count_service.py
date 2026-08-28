@@ -105,8 +105,12 @@ def find_datapoint_for_day(
             return False
         # Bare daystamp fallback: only accept a candidate with no
         # requestid at all (legacy/manually-created datapoint) or one
-        # whose requestid belongs to this same signal family.
-        return not item.requestid or item.requestid.startswith(requestid_prefix)
+        # whose requestid belongs to this same signal family. Anchored on
+        # ``prefix + "-"`` (the requestid format is always
+        # ``{prefix}-{goal_slug}-{day}``), not a bare ``startswith``, so a
+        # future signal prefix that happens to be a string-prefix of
+        # another one's can't silently defeat this family check.
+        return not item.requestid or item.requestid.startswith(f"{requestid_prefix}-")
 
     matches = [item for item in recent if _is_match(item)]
     if not matches:
@@ -135,6 +139,16 @@ class ReviewCountSource(Protocol):
         ...
 
 
+# Anki's revlog.type: 0=Learning, 1=Review, 2=Relearning, 3=Filtered are
+# genuine review events; 4=Manual and 5=Rescheduled are administrative
+# reset/reschedule actions with no actual review performed (see Anki's
+# ``RevlogReviewKind`` in rslib/src/revlog/mod.rs). These must be excluded
+# so a day with only a manual reschedule doesn't count as "reviewed" --
+# most visibly for the binary completion signal, which would otherwise
+# report a false positive.
+_NON_REVIEW_REVLOG_TYPES = (4, 5)
+
+
 @dataclass
 class AnkiReviewCountSource:
     """Reads review counts from the Anki revlog table."""
@@ -143,8 +157,11 @@ class AnkiReviewCountSource:
 
     def count_reviews_for_day(self, day: date_type) -> int:
         start_ms, end_ms = day_bounds_epoch_millis(day)
-        query = "SELECT COUNT(*) FROM revlog WHERE id >= ? AND id < ?"
-        count = self.db.scalar(query, start_ms, end_ms)
+        query = (
+            "SELECT COUNT(*) FROM revlog WHERE id >= ? AND id < ? "
+            f"AND type NOT IN ({', '.join('?' * len(_NON_REVIEW_REVLOG_TYPES))})"
+        )
+        count = self.db.scalar(query, start_ms, end_ms, *_NON_REVIEW_REVLOG_TYPES)
         return int(count or 0)
 
 
@@ -163,6 +180,11 @@ class DateRangeSyncResult:
     days_synced: int
     days_skipped: int
     days_failed: int
+    # NOTE: for a completion-sync result (``sync_completion_date_range``),
+    # this holds "days completed in range" (sum of posted 0/1 values), not
+    # a review count -- the two range-sync methods share this dataclass but
+    # give the field different meanings. See
+    # ``sync_completion_date_range``'s docstring.
     total_reviews: int
     last_successful_date: date_type | None
     last_successful_datapoint: DatapointResponse | None

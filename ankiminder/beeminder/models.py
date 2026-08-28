@@ -48,7 +48,10 @@ class DatapointResponse:
             value=float(raw.get("value", 0.0)),
             timestamp=int(raw.get("timestamp", 0)),
             comment=str(raw.get("comment", "")),
-            requestid=str(raw.get("requestid", "")),
+            # `or ""` (not `str(raw.get("requestid", ""))`) so an explicit
+            # JSON `null` normalizes to "" the same as a missing key --
+            # `str(None)` would otherwise produce the literal "None".
+            requestid=str(raw.get("requestid") or ""),
             daystamp=str(raw.get("daystamp", "")),
             fulltext=str(raw.get("fulltext", "")),
         )

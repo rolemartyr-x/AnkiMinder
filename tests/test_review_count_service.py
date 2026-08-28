@@ -1,3 +1,4 @@
+import sqlite3
 import unittest
 from datetime import date
 
@@ -65,7 +66,9 @@ class TestReviewCountService(unittest.TestCase):
         count = source.count_reviews_for_day(date(2026, 2, 2))
         self.assertEqual(count, 17)
         self.assertIn("FROM revlog", fake_db.last_query)
-        self.assertEqual(len(fake_db.last_params), 2)
+        self.assertIn("type NOT IN", fake_db.last_query)
+        # 2 day-bound params + 2 excluded revlog.type values (Manual, Rescheduled).
+        self.assertEqual(len(fake_db.last_params), 4)
 
     def test_sync_day_creates_datapoint_when_missing(self) -> None:
         config = AddonConfig(
@@ -164,6 +167,63 @@ class TestReviewCountService(unittest.TestCase):
         self.assertTrue(result.posted)
         self.assertEqual(len(client.calls), 1)
         self.assertEqual(len(client.updated_calls), 0)
+
+
+class SqliteDb:
+    """Thin `.scalar()` wrapper over a real sqlite3 connection.
+
+    Mirrors the subset of Anki's real `col.db` interface that
+    ``AnkiReviewCountSource`` actually uses, so the revlog-type filter in
+    ``count_reviews_for_day`` is exercised against real SQL execution rather
+    than a query-string assertion against ``FakeDb``.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def scalar(self, query, *params):
+        row = self._conn.execute(query, params).fetchone()
+        return row[0] if row else None
+
+
+def _make_sqlite_revlog(rows: list[tuple[int, int]]) -> SqliteDb:
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE revlog (id INTEGER PRIMARY KEY, type INTEGER)")
+    conn.executemany("INSERT INTO revlog (id, type) VALUES (?, ?)", rows)
+    conn.commit()
+    return SqliteDb(conn)
+
+
+class TestRevlogTypeFiltering(unittest.TestCase):
+    """Regression coverage for excluding non-review revlog rows (issue #7).
+
+    Anki's revlog.type: 0=Learning, 1=Review, 2=Relearning, 3=Filtered are
+    real review events; 4=Manual and 5=Rescheduled are administrative
+    reset/reschedule actions with no review performed, and must not count.
+    """
+
+    def test_manual_and_rescheduled_rows_excluded_from_count(self) -> None:
+        day = date(2026, 2, 2)
+        start_ms, _end_ms = day_bounds_epoch_millis(day)
+        rows = [
+            (start_ms + 1, 0),  # Learning -- counts
+            (start_ms + 2, 1),  # Review -- counts
+            (start_ms + 3, 2),  # Relearning -- counts
+            (start_ms + 4, 3),  # Filtered/cram -- counts
+            (start_ms + 5, 4),  # Manual reset/reschedule -- must NOT count
+            (start_ms + 6, 5),  # Rescheduled -- must NOT count
+        ]
+        db = _make_sqlite_revlog(rows)
+        source = AnkiReviewCountSource(db=db)
+        self.assertEqual(source.count_reviews_for_day(day), 4)
+
+    def test_day_with_only_manual_reschedule_counts_as_zero(self) -> None:
+        """The scenario that made this a false positive for the completion signal."""
+        day = date(2026, 2, 2)
+        start_ms, _end_ms = day_bounds_epoch_millis(day)
+        db = _make_sqlite_revlog([(start_ms + 1, 4)])
+        source = AnkiReviewCountSource(db=db)
+        self.assertEqual(source.count_reviews_for_day(day), 0)
 
 
 class TestFromConfig(unittest.TestCase):
@@ -504,6 +564,25 @@ class TestSyncCompletionDateRange(unittest.TestCase):
             self.assertTrue(result.per_day_results[day.isoformat()].posted)
             self.assertEqual(client.calls[offset][2].value, expected_values[day])
 
+    def test_dry_run_range_posts_nothing_and_reports_days_completed(self) -> None:
+        """Range-level dry-run contract for the completion signal.
+
+        The day-level ``sync_day_completion`` dry-run path is covered
+        elsewhere; this locks the range-level method's own message/behavior
+        contract (nothing posted, "days completed" label, not a raw review
+        count) since it's a public method exercised only indirectly before.
+        """
+        counts = {date(2026, 2, 1): 5, date(2026, 2, 2): 0}
+        service, client = self._make_service(counts, dry_run=True)
+        result = service.sync_completion_date_range(start=date(2026, 2, 1), end=date(2026, 2, 2))
+        self.assertEqual(result.days_synced, 0)
+        self.assertEqual(result.days_skipped, 2)
+        self.assertEqual(len(client.calls), 0)
+        self.assertIn("days completed", result.message)
+        # One of the two days had reviews -> 1 "day completed", not a
+        # review-count total (which would be 5).
+        self.assertEqual(result.total_reviews, 1)
+
     def test_invalid_range_returns_empty_result_error_message(self) -> None:
         service, client = self._make_service({})
         result = service.sync_completion_date_range(
@@ -672,6 +751,30 @@ class TestGoalSlugCollisionGuard(unittest.TestCase):
         self.assertEqual(result.days_synced, 0)
         self.assertIn("must differ", result.message)
         self.assertEqual(len(client.calls), 0)
+
+    def test_case_only_collision_is_not_currently_detected(self) -> None:
+        """Documents current behavior: the guard compares slugs case-sensitively.
+
+        Not a correctness fix -- Beeminder enforces lowercase-only goal
+        slugs at creation, so a mixed-case config value here can't resolve
+        to a real colliding goal in practice. This locks in today's
+        comparison behavior rather than asserting it's the ideal one;
+        whether to case-fold the comparison for clearer misconfiguration
+        errors is an open UX question (see issue #10).
+        """
+        config = AddonConfig(
+            beeminder_username="alice",
+            beeminder_auth_token="token",
+            review_count_goal_slug="AnkiReviews",
+            review_completion_goal_slug="ankireviews",
+            dry_run=False,
+        )
+        client = MockBeeminderClient()
+        service = ReviewCountSyncService(
+            config=config, client=client, review_count_source=FakeReviewCountSource(count=1)
+        )
+        result = service.sync_day_completion(day=date(2026, 2, 2))
+        self.assertTrue(result.posted)
 
     def test_distinct_slugs_are_unaffected_by_guard(self) -> None:
         """Sanity check: the normal, non-colliding configuration still works."""

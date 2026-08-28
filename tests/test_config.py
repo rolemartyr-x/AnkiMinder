@@ -41,6 +41,14 @@ class TestConfig(unittest.TestCase):
         config = AddonConfig.from_dict({"historical_lookback_days": MAX_HISTORICAL_LOOKBACK_DAYS})
         self.assertEqual(config.historical_lookback_days, MAX_HISTORICAL_LOOKBACK_DAYS)
 
+    def test_lookback_days_one_over_max_is_clamped(self) -> None:
+        """Precise boundary check: 10_000 already hits the clamp branch, but
+        only exercises it far past the edge -- this pins the exact cutoff."""
+        config = AddonConfig.from_dict(
+            {"historical_lookback_days": MAX_HISTORICAL_LOOKBACK_DAYS + 1}
+        )
+        self.assertEqual(config.historical_lookback_days, MAX_HISTORICAL_LOOKBACK_DAYS)
+
     def test_non_numeric_last_review_count_value_falls_back_to_default(self) -> None:
         config = AddonConfig.from_dict({"last_review_count_value": "bogus"})
         self.assertEqual(config.last_review_count_value, -1)
