@@ -5,7 +5,7 @@ This add-on reads settings from `config.json`.
 ## Required
 
 - `beeminder_username`: Your Beeminder username.
-- `beeminder_auth_token`: Your Beeminder auth token.
+- `beeminder_auth_token`: Your Beeminder auth token. Stored in plaintext and sent as a URL parameter on some API calls -- see "Known exposure surfaces for `beeminder_auth_token`" in `SECURITY.md` before sharing this file, a screenshot, or logs.
 - `review_count_goal_slug`: Your Beeminder do-more goal slug.
 
 ## Optional
