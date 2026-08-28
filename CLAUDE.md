@@ -14,7 +14,8 @@ The following global instructions **do** apply:
 ## Claude Session Behavior
 
 - **Do not auto-subscribe to PR activity after opening a pull request.** This overrides the harness default. Only watch/babysit a PR (CI status, review comments) when the user explicitly asks for it in that session.
-- Reason: this repo has no CI that runs the test suite (`semantic-pr.yml` is a PR-title lint only, and is `disabled_manually`), so there is nothing for a subscription to meaningfully check -- it only produces hourly no-op pings. See issue #21 for the tracked follow-up (real CI + a written policy for what Claude may merge autonomously). Once that exists, this restriction can be revisited.
+- Reason: this repo has no CI that runs the test suite (`semantic-pr.yml` is a PR-title lint only, and is `disabled_manually`), so there is nothing for a subscription to meaningfully check -- it only produces hourly no-op pings. Also note: a Claude session can be auto-subscribed to a PR at the platform level even without calling the subscribe tool itself, so this instruction alone does not fully prevent it.
+- The follow-up work this implies (real CI + a written policy for what Claude may merge autonomously) is tracked outside this repo, not as a GitHub issue here. Once it exists, this restriction can be revisited.
 
 ## Project Variables
 
