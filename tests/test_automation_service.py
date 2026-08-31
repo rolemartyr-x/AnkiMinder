@@ -3,9 +3,9 @@ from datetime import date
 
 from ankiminder.config import AddonConfig
 from ankiminder.services.automation_service import (
-    AutomationService,
     TRIGGER_STARTUP,
     TRIGGER_SYNC,
+    AutomationService,
 )
 
 

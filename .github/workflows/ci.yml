@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install lint tooling
-        run: pip install ruff mypy
+        run: pip install ruff==0.16.5 mypy==2.3.1
       - name: ruff check
         run: ruff check .
       - name: mypy

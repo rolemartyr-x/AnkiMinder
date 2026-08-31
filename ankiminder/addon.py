@@ -9,8 +9,15 @@ from typing import Any, Callable
 
 from .config import AddonConfig, ConfigRepository
 from .exceptions import BeeminderError
-from .services.automation_service import AutomationService, TRIGGER_STARTUP, TRIGGER_SYNC
-from .services.due_cards_cleared_service import AnkiDueCardCountSource, DueCardsClearedSyncService
+from .services.automation_service import (
+    TRIGGER_STARTUP,
+    TRIGGER_SYNC,
+    AutomationService,
+)
+from .services.due_cards_cleared_service import (
+    AnkiDueCardCountSource,
+    DueCardsClearedSyncService,
+)
 from .services.review_count_service import (
     AnkiReviewCountSource,
     DateRangeSyncResult,
