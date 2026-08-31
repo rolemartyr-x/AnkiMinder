@@ -11,6 +11,26 @@ The following global instructions **do** apply:
 - Never use `git add .` -- stage specific files
 - General communication style (direct, no filler)
 
+## Claude Session Behavior
+
+- **CI now runs on every PR** (`.github/workflows/ci.yml`: tests + `ruff`
+  + `mypy`), so a PR subscription has real signal to check. The earlier
+  blanket "do not auto-subscribe" restriction is lifted -- normal
+  auto-subscribe-after-opening-a-PR behavior applies again.
+- **Merge autonomy is governed by `MERGE_POLICY.md`, not by subscription
+  status.** Read it before merging anything. In short: green CI plus
+  docs-only/tests-only/pre-approved-batch changes may be merged without
+  asking; anything touching core logic (`ankiminder/beeminder/`,
+  `ankiminder/services/`, `ankiminder/addon.py`, `ankiminder/config.py`)
+  on its own initiative, anything touching the auth-token/transport
+  surface, and any change to a governance file (this file, `AGENTS.md`,
+  `MERGE_POLICY.md`, `.github/workflows/*`) always waits for the user's
+  click, regardless of CI or tier.
+- Note for continuity: a Claude session was once auto-subscribed to a PR
+  at the platform level without any explicit tool call. `MERGE_POLICY.md`
+  is written so that fact never matters -- being subscribed never implies
+  permission to merge; only the tier rules do.
+
 ## Project Variables
 
 | Variable | Value |
@@ -74,6 +94,7 @@ Dependencies flow downward only. Services depend on Client, Client depends on Tr
 
 See also:
 - `AGENTS.md` -- Agent-specific guardrails (Beeminder integration rules, quality bar)
+- `MERGE_POLICY.md` -- Risk-tier convention and what Claude may merge autonomously
 - `CONTRIBUTING.md` -- Contributor workflow and commit hygiene
 - `config.md` -- User-facing configuration documentation
 - `README.md` -- User-facing setup and usage guide
