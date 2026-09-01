@@ -9,7 +9,6 @@ import time
 import zipfile
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_ENTRIES = [
     "__init__.py",

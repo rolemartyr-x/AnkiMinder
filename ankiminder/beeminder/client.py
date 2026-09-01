@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
+from ..exceptions import BeeminderAuthError, BeeminderRequestError
 from .models import (
     CreateDatapointRequest,
     DatapointResponse,
@@ -17,7 +18,6 @@ from .transport import (
     parse_json_body,
     parse_json_object,
 )
-from ..exceptions import BeeminderAuthError, BeeminderRequestError
 
 DEFAULT_BASE_URL = "https://www.beeminder.com/api/v1"
 
