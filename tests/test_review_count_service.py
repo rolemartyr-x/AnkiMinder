@@ -10,7 +10,6 @@ from ankiminder.mocks.mock_client import MockBeeminderClient
 from ankiminder.services.review_count_service import (
     REQUEST_ID_PREFIX_COMPLETION,
     AnkiReviewCountSource,
-    DateRangeSyncResult,
     ReviewCountSyncService,
     day_bounds_epoch_millis,
     request_id_for_completion_day,

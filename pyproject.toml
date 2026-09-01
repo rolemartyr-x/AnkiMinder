@@ -1,0 +1,12 @@
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+# Deliberately narrow and explicit rather than "ruff's current default":
+# ruff's own default rule set has changed between minor versions (observed
+# 0.15.8 -> 0.16.5 while wiring up CI), which would otherwise make lint
+# results depend on exactly when `pip install ruff` happens to run.
+# E4/E7/E9 (pycodestyle) + F (pyflakes) catch real bugs (unused/undefined
+# names, broken imports); I (isort) keeps import order mechanical, not a
+# matter of taste.
+select = ["E4", "E7", "E9", "F", "I"]
